@@ -363,22 +363,38 @@ const PEOPLE = [
 ];
 
 // ---------- 背景：远处一列浅灰的小人（速度是主镜头的 0.45 倍） ----------
-function background(g, shift) {
-  g.fillStyle = C.light;
+// morph(x, y) 返回屏幕位置 (x, y) 处小人变成士兵的进度 0..1（红色经过后开始变）
+function background(g, shift, morph = () => 0) {
   const ax = 760, ay = 1180;
   for (let i = -12; i < 40; i++) {
     const x = ax + DIR[0] * i * 150 + SCREEN_DIR[0] * shift;
     const y = ay + DIR[1] * i * 150 + SCREEN_DIR[1] * shift;
     if (x < -60 || x > W + 60) continue;
     const k = 0.9 + (i * 37 % 5) * 0.05;         // 高矮略有不同
-    // 小人：两条腿、外套、头，部分戴帽子
-    g.fillRect(x - 9 * k, y - 46 * k, 7 * k, 46 * k);
-    g.fillRect(x + 2 * k, y - 46 * k, 7 * k, 46 * k);
+    const e = morph(x, y);
+    // 变成士兵：同样的高度，颜色变深，大衣变长，钢盔，斜扛步枪
+    const kk = mix(k, 1, e);
+    g.fillStyle = mixColor(C.light, C.warm, e);
+    g.fillRect(x - 9 * kk, y - 46 * kk, 7 * kk, 46 * kk);
+    g.fillRect(x + 2 * kk, y - 46 * kk, 7 * kk, 46 * kk);
+    const hemY = y - mix(40, 26, e) * kk;
     g.beginPath();
-    g.moveTo(x - 16 * k, y - 40 * k); g.lineTo(x - 12 * k, y - 104 * k); g.quadraticCurveTo(x, y - 112 * k, x + 12 * k, y - 104 * k);
-    g.lineTo(x + 16 * k, y - 40 * k); g.closePath(); g.fill();
-    g.beginPath(); g.arc(x - 1 * k, y - 122 * k, 11 * k, 0, Math.PI * 2); g.fill();
-    if (i % 3 === 0) { g.fillRect(x - 16 * k, y - 132 * k, 30 * k, 4 * k); g.fillRect(x - 10 * k, y - 144 * k, 18 * k, 12 * k); }
+    g.moveTo(x - mix(16, 18, e) * kk, hemY); g.lineTo(x - 12 * kk, y - 104 * kk); g.quadraticCurveTo(x, y - 112 * kk, x + 12 * kk, y - 104 * kk);
+    g.lineTo(x + mix(16, 18, e) * kk, hemY); g.closePath(); g.fill();
+    g.beginPath(); g.arc(x - 1 * kk, y - 122 * kk, 11 * kk, 0, Math.PI * 2); g.fill();
+    if (i % 3 === 0 && e < 1) {                  // 原来的帽子淡出
+      g.globalAlpha = 1 - e;
+      g.fillRect(x - 16 * k, y - 132 * k, 30 * k, 4 * k); g.fillRect(x - 10 * k, y - 144 * k, 18 * k, 12 * k);
+      g.globalAlpha = 1;
+    }
+    if (e > 0) {
+      g.globalAlpha = e;
+      g.beginPath(); g.arc(x, y - 126 * kk, 15 * kk, Math.PI, 0); g.fill();                     // 钢盔
+      g.beginPath(); g.moveTo(x - 17 * kk, y - 124 * kk); g.lineTo(x + 20 * kk, y - 122 * kk); g.lineTo(x + 22 * kk, y - 116 * kk); g.lineTo(x - 15 * kk, y - 120 * kk); g.fill();
+      g.strokeStyle = g.fillStyle; g.lineWidth = 3 * kk; g.lineCap = 'round';                   // 步枪
+      g.beginPath(); g.moveTo(x - 6 * kk, y - 70 * kk); g.lineTo(x - 6 * kk + 44 * e * kk * 0.27, y - 70 * kk - 150 * e * kk); g.stroke();
+      g.globalAlpha = 1;
+    }
   }
   g.strokeStyle = C.light; g.lineWidth = 2;
   const l0 = [ax + DIR[0] * -12 * 150 + SCREEN_DIR[0] * shift, ay + DIR[1] * -12 * 150 + SCREEN_DIR[1] * shift];
@@ -721,12 +737,20 @@ export function queue(g, t) {
   const bgScale = Math.pow(cam.zoom / ZOOM, 0.3);
   g.save();
   g.translate(SC[0], SC[1]); g.scale(bgScale, bgScale); g.translate(-SC[0], -SC[1]);
+  const c = feetAt(cam.sig);
+  // 远处的小人也会被红色经过：把它在屏幕上的位置换算到队列坐标，判断红色是否已经到达
+  const sw = waveS(t);
+  const bgMorph = t <= PART1_END ? undefined : (x, y) => {
+    const sx = SC[0] + (x - SC[0]) * bgScale, sy = SC[1] + (y - SC[1]) * bgScale;
+    const wx = (sx - SC[0]) / cam.zoom + c[0] + cam.off[0];
+    const wy = (sy - SC[1]) / cam.zoom + c[1] + cam.off[1];
+    const s = (wx - FEET0[0]) * DIR[0] + (wy - FEET0[1]) * DIR[1];   // 投影到队列方向
+    return smooth(s - sw, 0, 810);                                   // 810 = 红色 1.2 秒走过的距离
+  };
   airship(g, t);
-  background(g, shift * 0.45);
+  background(g, shift * 0.45, bgMorph);
   distantBirds(g, t);
   g.restore();
-
-  const c = feetAt(cam.sig);
   g.save();
   g.translate(SC[0], SC[1]);
   g.scale(cam.zoom, cam.zoom);
