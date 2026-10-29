@@ -6,12 +6,16 @@
 
 ## 文件
 
-- `part1.webm`：第一段成片，1080×1920，带音乐
+- `part1.webm`：第一段成片，1080×1920，30fps，带音乐
 - `index.html`：播放页面，可以播放、导出 WebM
-- `src/part1.js`：第一段的人物、镜头和时间
-- `src/draw.js`：图标和人物剪影的绘制
-- `src/main.js`：播放、音频同步、导出
+- `src/part1.js`：第一段的镜头、前后景、乌鸦、八个人物和他们的动作
+- `src/figures.js`：人物剪影（衣服阴影、图案、帽子、头发、姿势）
+- `src/draw.js`：调色板、时间函数、图标、纸张质感、飞行的乌鸦
+- `src/export.js`：逐帧导出 WebM（WebCodecs 编码 + WebM 封装）
+- `src/main.js`：播放、音频同步、导出按钮
 - `src/icons.js`：图标路径数据
+
+导出按钮会逐帧渲染再编码，不会掉帧。需要 Chrome 或 Edge，并且页面通过 `https` 或 `localhost` 打开；条件不满足时会退回实时录制。
 
 ## 本地运行
 

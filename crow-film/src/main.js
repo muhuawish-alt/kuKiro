@@ -1,6 +1,7 @@
 // 播放、音频同步和导出。目前只完成第一段（0–16.875 秒）。
 import { W, H } from './draw.js';
 import { part1, PART1_END } from './part1.js';
+import { canExport, exportWebM } from './export.js';
 
 const AUDIO_START = 44.18;           // 原曲中的起点
 const PREVIEW_END = PART1_END;       // 现阶段只播放到第一段结束
@@ -47,10 +48,12 @@ const audioCtx = new AudioContext();
 const audioDest = audioCtx.createMediaStreamDestination();
 let audioBuffer = null;
 
+let audioBytes = null;                 // 原始 MP3 数据，逐帧导出时重新解码用
 async function loadAudio(urlOrBlob) {
   const data = typeof urlOrBlob === 'string'
     ? await fetch(encodeURI(urlOrBlob)).then((r) => { if (!r.ok) throw new Error(r.status); return r.arrayBuffer(); })
     : await urlOrBlob.arrayBuffer();
+  audioBytes = data.slice(0);
   audioBuffer = await audioCtx.decodeAudioData(data);
   label.textContent = '音频已就绪';
 }
@@ -102,8 +105,28 @@ function stop() {
 
 document.getElementById('play').onclick = () => (playing ? stop() : start());
 
+function download(blob, name) {
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  a.click();
+}
+
 document.getElementById('rec').onclick = async () => {
   await audioReady;
+  if (canExport() && audioBytes) {
+    // 逐帧导出：每帧按精确时间渲染，速度慢的电脑也不会掉帧
+    ui.classList.add('hidden');
+    const blob = await exportWebM({
+      canvas, render, duration: PREVIEW_END, fps: 30, audioBytes, audioStart: AUDIO_START, fadeOut: 0.25,
+      onProgress: (p) => { label.textContent = '导出中 ' + Math.round(p * 100) + '%'; },
+    });
+    ui.classList.remove('hidden');
+    label.textContent = '导出完成';
+    download(blob, '鸦_第一段.webm');
+    return;
+  }
+  // 浏览器不支持 WebCodecs 时，退回实时录制
   const stream = canvas.captureStream(30);
   audioDest.stream.getAudioTracks().forEach((tr) => stream.addTrack(tr));
   const mime = ['video/webm;codecs=vp9,opus', 'video/webm;codecs=vp8,opus', 'video/webm']
@@ -111,12 +134,7 @@ document.getElementById('rec').onclick = async () => {
   recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
   const chunks = [];
   recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  recorder.onstop = () => {
-    const a = document.createElement('a');
-    a.href = URL.createObjectURL(new Blob(chunks, { type: 'video/webm' }));
-    a.download = '鸦_第一段.webm';
-    a.click();
-  };
+  recorder.onstop = () => download(new Blob(chunks, { type: 'video/webm' }), '鸦_第一段.webm');
   ui.classList.add('hidden');
   recorder.start();
   await start();

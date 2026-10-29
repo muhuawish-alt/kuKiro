@@ -1,36 +1,64 @@
-// 通用绘图工具：颜色、图标、人物剪影。
+// 通用绘图工具：调色板、时间函数、图标、图案、纸张质感、带阴影的衣服。
 import { ICONS } from './icons.js';
 
 export const W = 1080, H = 1920;
+export const BAR = 1.875;          // 一小节（128 BPM）
+export const BEAT = BAR / 4;
+
 export const C = {
-  black: '#0b0b0b',
-  white: '#f2efe8',
-  red: '#b3001b',
-  grey: '#8a8780',
+  paper: '#efe8da',
+  ink: '#141210',      // 剪影
+  char: '#2c2824',     // 深色衣服
+  warm: '#8c857a',     // 暖灰
+  light: '#c9c1b3',    // 浅灰
+  cream: '#f7f1e3',    // 围裙、襁褓
+  red: '#a3192a',      // 这一段只用在风筝上
+  mustard: '#c9a227',
+  green: '#3f5a4a',
+  blue: '#5b6f82',
+  brown: '#7a4a2a',
 };
 
+// ---------- 时间函数 ----------
 export const clamp = (x, a = 0, b = 1) => Math.min(b, Math.max(a, x));
 export const lin = (t, t0, t1) => clamp((t - t0) / (t1 - t0));
 export const smooth = (t, t0, t1) => { const x = lin(t, t0, t1); return x * x * (3 - 2 * x); };
 export const mix = (a, b, p) => a + (b - a) * p;
+export const mixPt = (a, b, p) => [mix(a[0], b[0], p), mix(a[1], b[1], p)];
+export const wave = (t, period, phase = 0) => Math.sin(2 * Math.PI * (t / period + phase));
+const mod = (a, n) => ((a % n) + n) % n;
+export { mod };
+// 周期性的平滑脉冲：每个周期里，从 offset 开始，持续 dur 秒，0 → 1 → 0
+export function pulse(t, period, offset, dur) {
+  const p = mod(t - offset, period);
+  return p > dur ? 0 : 0.5 - 0.5 * Math.cos((2 * Math.PI * p) / dur);
+}
+// 当前周期里经过的时间
+export const phaseIn = (t, period, offset = 0) => mod(t - offset, period);
+
+// 颜色加深（amt 0..1）
+export function shade(hex, amt) {
+  const n = parseInt(hex.slice(1), 16);
+  const f = (v) => Math.round(v * (1 - amt));
+  return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
+}
 
 // ---------- 图标 ----------
 const iconCache = {};
-function iconPath(name) {
+export function iconPath(name) {
   if (!iconCache[name]) iconCache[name] = new Path2D(ICONS[name]);
   return iconCache[name];
 }
 
-// 以 (cx, cy) 为中心画图标；size 是图标边长；flip=-1 水平翻转
-// outline 是白色描边的屏幕像素宽度：道具压在黑色身体上时，用白边把两者分开
-export function icon(g, name, cx, cy, size, rot = 0, flip = 1, color = C.black, outline = 0) {
+// 以 (cx, cy) 为中心画图标；flip=-1 水平翻转；outline 是白边宽度（当前坐标系单位）
+export function icon(g, name, cx, cy, size, rot = 0, flip = 1, color = C.ink, outline = 0, outlineColor = C.paper) {
   g.save();
   g.translate(cx, cy);
   g.rotate(rot);
   g.scale(flip * size / 512, size / 512);
   g.translate(-256, -256);
   if (outline > 0) {
-    g.strokeStyle = C.white;
+    g.strokeStyle = outlineColor;
     g.lineJoin = 'round';
     g.lineWidth = outline * 2 * 512 / size;
     g.stroke(iconPath(name));
@@ -40,126 +68,128 @@ export function icon(g, name, cx, cy, size, rot = 0, flip = 1, color = C.black, 
   g.restore();
 }
 
-// ---------- 人物剪影 ----------
-// 局部坐标：脚底在 (0, 0)，人物朝左（-x 是前方），成年人身高约 820。
-// 剪影是黑色平涂，细节用白色细线，参考《喜鹊谋杀案》片头的插画方式。
-
-function limb(g, pts, width) {
-  g.lineWidth = width;
-  g.lineCap = 'round';
-  g.lineJoin = 'round';
-  g.beginPath();
-  g.moveTo(pts[0][0], pts[0][1]);
-  for (let i = 1; i < pts.length; i++) g.lineTo(pts[i][0], pts[i][1]);
-  g.stroke();
+// ---------- 图案 ----------
+// 图案在当前坐标系中平铺，所以会跟着人物一起移动，不会"游动"
+function tile(w, h, draw) {
+  const c = document.createElement('canvas');
+  c.width = w; c.height = h;
+  draw(c.getContext('2d'));
+  return c;
 }
-
-function shoe(g, x) {
-  g.beginPath();
-  g.ellipse(x - 14, -11, 34, 13, 0, 0, Math.PI * 2);
-  g.fill();
-}
-
-function head(g, hx, hy) {
-  g.beginPath(); g.arc(hx, hy, 46, 0, Math.PI * 2); g.fill();
-  // 鼻子和下巴
-  g.beginPath(); g.moveTo(hx - 40, hy - 8); g.lineTo(hx - 58, hy + 10); g.lineTo(hx - 40, hy + 16); g.fill();
-  g.beginPath(); g.ellipse(hx - 14, hy + 36, 26, 18, 0, 0, Math.PI * 2); g.fill();
-  // 脖子
-  g.fillRect(hx - 14, hy + 30, 30, 50);
-}
-
-const HATS = {
-  flatCap(g, hx, hy) {
-    g.beginPath(); g.ellipse(hx + 4, hy - 30, 54, 26, -0.08, Math.PI, 0); g.fill();
-    g.beginPath(); g.moveTo(hx - 40, hy - 30); g.quadraticCurveTo(hx - 70, hy - 26, hx - 84, hy - 14); g.lineTo(hx - 30, hy - 18); g.fill();
-  },
-  bowler(g, hx, hy) {
-    g.beginPath(); g.ellipse(hx + 2, hy - 40, 44, 46, 0, Math.PI, 0); g.fill();
-    g.fillRect(hx - 42, hy - 44, 88, 14);
-    g.beginPath(); g.ellipse(hx + 2, hy - 30, 66, 9, 0, 0, Math.PI * 2); g.fill();
-  },
-  schoolCap(g, hx, hy) {
-    g.beginPath(); g.ellipse(hx + 2, hy - 28, 50, 30, 0, Math.PI, 0); g.fill();
-    g.beginPath(); g.moveTo(hx - 36, hy - 28); g.lineTo(hx - 76, hy - 20); g.lineTo(hx - 30, hy - 14); g.fill();
-  },
-  shortHair(g, hx, hy) {
-    g.beginPath(); g.ellipse(hx + 8, hy - 18, 50, 40, 0.2, Math.PI * 0.9, Math.PI * 2.15); g.fill();
-  },
-  braid(g, hx, hy) {
-    g.beginPath(); g.ellipse(hx + 8, hy - 12, 52, 44, 0.1, Math.PI * 0.85, Math.PI * 2.2); g.fill();
-    g.lineWidth = 16; g.lineCap = 'round';
-    g.beginPath(); g.moveTo(hx + 44, hy); g.quadraticCurveTo(hx + 66, hy + 60, hx + 52, hy + 120); g.stroke();
-  },
-  longHair(g, hx, hy) {
-    g.beginPath();
-    g.moveTo(hx - 40, hy - 20);
-    g.quadraticCurveTo(hx - 20, hy - 70, hx + 30, hy - 50);
-    g.quadraticCurveTo(hx + 80, hy - 20, hx + 70, hy + 90);
-    g.quadraticCurveTo(hx + 70, hy + 170, hx + 50, hy + 200);
-    g.lineTo(hx + 10, hy + 150);
-    g.quadraticCurveTo(hx + 30, hy + 40, hx + 10, hy - 10);
-    g.closePath(); g.fill();
-  },
+const TILES = {
+  halftone: tile(12, 12, (g) => { g.fillStyle = 'rgba(20,18,16,0.55)'; g.beginPath(); g.arc(6, 6, 2.4, 0, Math.PI * 2); g.fill(); }),
+  pinstripe: tile(18, 18, (g) => { g.fillStyle = 'rgba(239,232,218,0.28)'; g.fillRect(8, 0, 2, 18); }),
+  checks: tile(44, 44, (g) => {
+    g.fillStyle = 'rgba(20,18,16,0.32)'; g.fillRect(0, 18, 44, 8); g.fillRect(18, 0, 8, 44);
+    g.fillStyle = 'rgba(239,232,218,0.3)'; g.fillRect(0, 40, 44, 2); g.fillRect(40, 0, 2, 44);
+  }),
+  dotsBlue: tile(40, 40, (g) => {
+    g.fillStyle = C.blue;
+    g.beginPath(); g.arc(10, 10, 5, 0, Math.PI * 2); g.fill();
+    g.beginPath(); g.arc(30, 30, 5, 0, Math.PI * 2); g.fill();
+  }),
+  weave: tile(10, 10, (g) => { g.fillStyle = 'rgba(239,232,218,0.12)'; g.fillRect(0, 0, 5, 1); g.fillRect(5, 5, 5, 1); }),
 };
+const patterns = new Map();
+export function pattern(g, key) {
+  if (!patterns.has(key)) patterns.set(key, g.createPattern(TILES[key], 'repeat'));
+  return patterns.get(key);
+}
 
-// spec: { scale, hat, dress, coatLen, arm, hunch }
-// arm 是前臂的关键点（局部坐标），返回手的位置，方便挂道具
-export function figure(g, x, y, spec) {
-  const s = spec.scale;
+// ---------- 带阴影的衣服 ----------
+// 光从左上方来：衣服右侧（背光面）加一块锯齿边的阴影，阴影里加网点，阴影边缘加两条白色褶线
+export function garment(g, path, color, { pat = null, top = -720, bottom = 0, edge = 14, folds = true } = {}) {
+  g.fillStyle = color;
+  g.fill(path);
   g.save();
-  g.translate(x, y);
-  g.scale(s, s);
-  g.fillStyle = C.black;
-  g.strokeStyle = C.black;
-  const hunch = spec.hunch || 0;          // 老人略微前倾
-  const hx = -6 - hunch, hy = -760 + hunch * 0.3;
-
-  // 腿和鞋
-  const legTop = spec.dress ? -330 : -440;
-  limb(g, [[-24, legTop], [-28, -20]], 50);
-  limb(g, [[20, legTop], [26, -20]], 50);
-  shoe(g, -28); shoe(g, 22);
-
-  // 后臂：藏在身体后面，只露出一点轮廓，让身形更饱满
-  limb(g, [[34, -660], [52, -540], [50, -440]], 32);
-
-  // 躯干：外套或连衣裙
-  const hem = spec.dress ? (spec.dressLen || -170) : -(spec.coatLen || 400);
+  g.clip(path);
+  if (pat) { g.fillStyle = pattern(g, pat); g.fill(path); }
   g.beginPath();
-  g.moveTo(-62 - hunch * 0.6, -684);
-  g.quadraticCurveTo(-86 - hunch * 0.4, -600, -78, -470);
-  if (spec.dress) { g.lineTo(-128, hem); g.lineTo(118, hem); } else { g.lineTo(-86, hem); g.lineTo(84, hem); }
-  g.lineTo(76, -470);
-  g.quadraticCurveTo(82, -620, 56 - hunch * 0.4, -684);
-  g.quadraticCurveTo(-3 - hunch * 0.5, -716, -62 - hunch * 0.6, -684);
+  g.moveTo(edge, top - 40);
+  let k = 0;
+  for (let y = top; y <= bottom + 40; y += 64, k++) g.lineTo(edge + (k % 2 ? 16 : -10) + k * 2, y);
+  g.lineTo(400, bottom + 60);
+  g.lineTo(400, top - 60);
+  g.closePath();
+  g.fillStyle = 'rgba(20,18,16,0.42)';
   g.fill();
-
-  // 头和帽子/头发
-  head(g, hx, hy);
-  if (spec.hat) HATS[spec.hat](g, hx, hy);
-
-  // 前臂
-  const arm = spec.arm || [[-24, -660], [-40, -540], [-44, -430]];
-  limb(g, arm, 34);
-  const hand = arm[arm.length - 1];
-  g.beginPath(); g.arc(hand[0], hand[1], 18, 0, Math.PI * 2); g.fill();
-
-  // 白色细节线
-  g.strokeStyle = C.white; g.fillStyle = C.white; g.lineWidth = 3; g.lineCap = 'round';
-  g.beginPath(); g.moveTo(-30 - hunch * 0.5, -684); g.lineTo(-46, -600); g.stroke();           // 领口
-  if (!spec.dress) {
-    g.beginPath(); g.moveTo(-58, -600); g.lineTo(-68, hem + 6); g.stroke();                       // 门襟
-    for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(-46, -590 + i * 48, 4, 0, Math.PI * 2); g.fill(); }
-    g.beginPath(); g.moveTo(-76, -478); g.lineTo(74, -478); g.stroke();                           // 腰带
-  } else {
-    g.beginPath(); g.moveTo(-76, -470); g.lineTo(72, -470); g.stroke();                           // 腰线
-    g.beginPath(); g.moveTo(-112, hem + 20); g.lineTo(104, hem + 20); g.stroke();                 // 裙摆边
-  }
-  if (spec.apron) {
-    g.beginPath(); g.moveTo(-74, -560); g.lineTo(-86, hem + 30); g.lineTo(24, hem + 30); g.stroke();
+  g.fillStyle = pattern(g, 'halftone');
+  g.fill();
+  if (folds) {
+    g.strokeStyle = 'rgba(247,241,227,0.55)';
+    g.lineWidth = 3;
+    g.lineCap = 'round';
+    g.beginPath(); g.moveTo(edge - 6, top + 120); g.quadraticCurveTo(edge - 24, (top + bottom) / 2, edge - 14, bottom - 20); g.stroke();
+    g.beginPath(); g.moveTo(edge - 40, top + 260); g.quadraticCurveTo(edge - 52, (top + bottom) / 2 + 80, edge - 46, bottom - 10); g.stroke();
   }
   g.restore();
-  // 返回手在世界坐标中的位置
-  return [x + hand[0] * s, y + hand[1] * s];
+}
+
+// ---------- 纸张质感（静态，只生成一次） ----------
+export function makePaper() {
+  return tile(W, H, (g) => {
+    g.fillStyle = C.paper;
+    g.fillRect(0, 0, W, H);
+    // 大块的淡污渍
+    let seed = 11;
+    const rnd = () => (seed = (seed * 16807) % 2147483647) / 2147483647;
+    for (let i = 0; i < 9; i++) {
+      const x = rnd() * W, y = rnd() * H, r = 160 + rnd() * 420;
+      const grd = g.createRadialGradient(x, y, 0, x, y, r);
+      grd.addColorStop(0, 'rgba(150,128,96,0.10)');
+      grd.addColorStop(1, 'rgba(150,128,96,0)');
+      g.fillStyle = grd;
+      g.fillRect(x - r, y - r, r * 2, r * 2);
+    }
+    // 纸纤维
+    g.strokeStyle = 'rgba(120,104,80,0.08)';
+    g.lineWidth = 1;
+    for (let i = 0; i < 500; i++) {
+      const x = rnd() * W, y = rnd() * H, a = rnd() * Math.PI, l = 6 + rnd() * 18;
+      g.beginPath(); g.moveTo(x, y); g.lineTo(x + Math.cos(a) * l, y + Math.sin(a) * l); g.stroke();
+    }
+    // 四角压暗
+    const v = g.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.75);
+    v.addColorStop(0, 'rgba(60,48,32,0)');
+    v.addColorStop(1, 'rgba(60,48,32,0.16)');
+    g.fillStyle = v;
+    g.fillRect(0, 0, W, H);
+  });
+}
+
+// ---------- 飞行的乌鸦（剪影，翅尖有分开的飞羽） ----------
+// flap 取 -1..1：-1 翅膀在下，1 翅膀在上；dir=1 朝右飞
+export function flyingCrow(g, x, y, size, flap, dir = 1, color = C.ink) {
+  g.save();
+  g.translate(x, y);
+  g.scale(dir * size / 100, size / 100);
+  g.fillStyle = color;
+  // 身体、头、嘴
+  g.beginPath(); g.ellipse(0, 0, 34, 12, -0.08, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.arc(32, -5, 10, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.moveTo(38, -9); g.lineTo(56, -3); g.lineTo(38, 1); g.fill();
+  // 尾羽
+  g.beginPath(); g.moveTo(-28, -4); g.lineTo(-58, -12); g.lineTo(-62, 6); g.lineTo(-28, 6); g.fill();
+  // 翅膀：根部在身体上，翅尖随拍动上下；翅尖有五根分开的圆头飞羽
+  const tipY = -64 * flap;
+  for (const side of [1, 0]) {
+    const k = side ? 0.8 : 1;            // 远侧翅膀略小、略淡
+    g.fillStyle = side ? shade(color, -0.6) : color;
+    const T = [-14 * k, tipY * k];
+    g.beginPath();
+    g.moveTo(-8, -3);
+    g.quadraticCurveTo(-4, tipY * 0.55 * k, T[0], T[1]);
+    g.lineTo(T[0] + 22 * k, T[1] + 6 * Math.sign(flap || 1));
+    g.quadraticCurveTo(16, tipY * 0.45 * k, 14, 2);
+    g.closePath();
+    g.fill();
+    const ang = Math.atan2(T[1], T[0] + 8);
+    for (let f = 0; f < 5; f++) {
+      const fx = T[0] + f * 5.5 * k, fy = T[1] + f * 1.6 * Math.sign(flap || 1);
+      g.beginPath();
+      g.ellipse(fx + Math.cos(ang) * 9, fy + Math.sin(ang) * 9, 12 * k, 3.4 * k, ang, 0, Math.PI * 2);
+      g.fill();
+    }
+  }
+  g.restore();
 }
