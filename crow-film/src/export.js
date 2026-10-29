@@ -98,7 +98,8 @@ export async function exportWebM({ canvas, render, duration, fps = 30, audioByte
     },
     error: (e) => { throw e; },
   });
-  venc.configure({ codec: 'vp09.00.10.08', width, height, bitrate: 14_000_000, framerate: fps, latencyMode: 'quality' });
+  // 9 Mbps：平涂画面在这个码率下已经很干净，一分钟的成片也能控制在 GitHub 单文件 100 MB 的限制以内
+  venc.configure({ codec: 'vp09.00.10.08', width, height, bitrate: 9_000_000, framerate: fps, latencyMode: 'quality' });
 
   const frames = Math.round(duration * fps);
   for (let i = 0; i < frames; i++) {

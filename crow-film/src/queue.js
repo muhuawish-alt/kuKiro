@@ -3,7 +3,7 @@
 //   镜头从队尾木桩上的乌鸦开始，匀速沿队列移到队首；前景和背景按不同速度移动，做出景深。
 // 第二段（16.875–26.25 秒）：红色从队首漫向队尾，经过谁，谁就变成同样的士兵；镜头拉远成全景。
 import {
-  W, H, BAR, C, lin, smooth, mix, mixColor, wave, pulse, phaseIn, mod, shade,
+  W, H, BAR, BEAT, C, lin, smooth, mix, mixColor, wave, pulse, phaseIn, mod, shade,
   icon, iconPath, makePaper, flyingCrow, garment,
 } from './draw.js';
 import { person, rifle } from './figures.js';
@@ -364,42 +364,59 @@ const PEOPLE = [
 
 // ---------- 背景：远处一列浅灰的小人（速度是主镜头的 0.45 倍） ----------
 // morph(x, y) 返回屏幕位置 (x, y) 处小人变成士兵的进度 0..1（红色经过后开始变）
-function background(g, shift, morph = () => 0) {
+// life 只在第三段使用：{ t, march(t) }。小人跟着队伍走，到时间就消失，原地留下原来样子的影子
+function background(g, shift, morph = () => 0, life = null) {
   const ax = 760, ay = 1180;
   for (let i = -12; i < 40; i++) {
-    const x = ax + DIR[0] * i * 150 + SCREEN_DIR[0] * shift;
-    const y = ay + DIR[1] * i * 150 + SCREEN_DIR[1] * shift;
-    if (x < -60 || x > W + 60) continue;
+    let x = ax + DIR[0] * i * 150 + SCREEN_DIR[0] * shift;
+    let y = ay + DIR[1] * i * 150 + SCREEN_DIR[1] * shift;
     const k = 0.9 + (i * 37 % 5) * 0.05;         // 高矮略有不同
+    if (life) {
+      const vt = bgVanishTime(i);
+      const m = life.march(Math.min(life.t, vt));
+      x += DIR[0] * m; y += DIR[1] * m;
+      if (x < -60 || x > W + 60) continue;
+      const alive = 1 - smooth(life.t, vt, vt + 0.4);
+      const sh = smooth(life.t, vt + 0.1, vt + 0.6);
+      if (sh > 0) { g.globalAlpha = 0.9 * sh; bgFigure(g, x + 6, y - 2, k, 0, i, '#4d4a4a'); }
+      if (alive > 0) { g.globalAlpha = alive; bgFigure(g, x, y, k, 1, i, C.warm); }
+      g.globalAlpha = 1;
+      continue;
+    }
+    if (x < -60 || x > W + 60) continue;
     const e = morph(x, y);
-    // 变成士兵：同样的高度，颜色变深，大衣变长，钢盔，斜扛步枪
-    const kk = mix(k, 1, e);
-    g.fillStyle = mixColor(C.light, C.warm, e);
-    g.fillRect(x - 9 * kk, y - 46 * kk, 7 * kk, 46 * kk);
-    g.fillRect(x + 2 * kk, y - 46 * kk, 7 * kk, 46 * kk);
-    const hemY = y - mix(40, 26, e) * kk;
-    g.beginPath();
-    g.moveTo(x - mix(16, 18, e) * kk, hemY); g.lineTo(x - 12 * kk, y - 104 * kk); g.quadraticCurveTo(x, y - 112 * kk, x + 12 * kk, y - 104 * kk);
-    g.lineTo(x + mix(16, 18, e) * kk, hemY); g.closePath(); g.fill();
-    g.beginPath(); g.arc(x - 1 * kk, y - 122 * kk, 11 * kk, 0, Math.PI * 2); g.fill();
-    if (i % 3 === 0 && e < 1) {                  // 原来的帽子淡出
-      g.globalAlpha = 1 - e;
-      g.fillRect(x - 16 * k, y - 132 * k, 30 * k, 4 * k); g.fillRect(x - 10 * k, y - 144 * k, 18 * k, 12 * k);
-      g.globalAlpha = 1;
-    }
-    if (e > 0) {
-      g.globalAlpha = e;
-      g.beginPath(); g.arc(x, y - 126 * kk, 15 * kk, Math.PI, 0); g.fill();                     // 钢盔
-      g.beginPath(); g.moveTo(x - 17 * kk, y - 124 * kk); g.lineTo(x + 20 * kk, y - 122 * kk); g.lineTo(x + 22 * kk, y - 116 * kk); g.lineTo(x - 15 * kk, y - 120 * kk); g.fill();
-      g.strokeStyle = g.fillStyle; g.lineWidth = 3 * kk; g.lineCap = 'round';                   // 步枪
-      g.beginPath(); g.moveTo(x - 6 * kk, y - 70 * kk); g.lineTo(x - 6 * kk + 44 * e * kk * 0.27, y - 70 * kk - 150 * e * kk); g.stroke();
-      g.globalAlpha = 1;
-    }
+    bgFigure(g, x, y, k, e, i, mixColor(C.light, C.warm, e));
   }
   g.strokeStyle = C.light; g.lineWidth = 2;
   const l0 = [ax + DIR[0] * -12 * 150 + SCREEN_DIR[0] * shift, ay + DIR[1] * -12 * 150 + SCREEN_DIR[1] * shift];
   const l1 = [ax + DIR[0] * 40 * 150 + SCREEN_DIR[0] * shift, ay + DIR[1] * 40 * 150 + SCREEN_DIR[1] * shift];
   g.beginPath(); g.moveTo(l0[0], l0[1]); g.lineTo(l1[0], l1[1]); g.stroke();
+}
+
+// 远处的一个小人：e=0 是普通人，e=1 是士兵（同样的高度，大衣变长，钢盔，斜扛步枪）
+function bgFigure(g, x, y, k, e, i, color) {
+  const a0 = g.globalAlpha;
+  const kk = mix(k, 1, e);
+  g.fillStyle = color;
+  g.fillRect(x - 9 * kk, y - 46 * kk, 7 * kk, 46 * kk);
+  g.fillRect(x + 2 * kk, y - 46 * kk, 7 * kk, 46 * kk);
+  const hemY = y - mix(40, 26, e) * kk;
+  g.beginPath();
+  g.moveTo(x - mix(16, 18, e) * kk, hemY); g.lineTo(x - 12 * kk, y - 104 * kk); g.quadraticCurveTo(x, y - 112 * kk, x + 12 * kk, y - 104 * kk);
+  g.lineTo(x + mix(16, 18, e) * kk, hemY); g.closePath(); g.fill();
+  g.beginPath(); g.arc(x - 1 * kk, y - 122 * kk, 11 * kk, 0, Math.PI * 2); g.fill();
+  if (i % 3 === 0 && e < 1) {                  // 原来的帽子淡出
+    g.globalAlpha = a0 * (1 - e);
+    g.fillRect(x - 16 * k, y - 132 * k, 30 * k, 4 * k); g.fillRect(x - 10 * k, y - 144 * k, 18 * k, 12 * k);
+  }
+  if (e > 0) {
+    g.globalAlpha = a0 * e;
+    g.beginPath(); g.arc(x, y - 126 * kk, 15 * kk, Math.PI, 0); g.fill();                     // 钢盔
+    g.beginPath(); g.moveTo(x - 17 * kk, y - 124 * kk); g.lineTo(x + 20 * kk, y - 122 * kk); g.lineTo(x + 22 * kk, y - 116 * kk); g.lineTo(x - 15 * kk, y - 120 * kk); g.fill();
+    g.strokeStyle = color; g.lineWidth = 3 * kk; g.lineCap = 'round';                         // 步枪
+    g.beginPath(); g.moveTo(x - 6 * kk, y - 70 * kk); g.lineTo(x - 6 * kk + 44 * e * kk * 0.27, y - 70 * kk - 150 * e * kk); g.stroke();
+  }
+  g.globalAlpha = a0;
 }
 
 // 远处的鸟群：越来越多，新加入的鸟慢慢浮现
@@ -600,8 +617,9 @@ function hermite(p0, m0, p1, m1, u) {
   return (2 * u3 - 3 * u2 + 1) * p0 + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * p1 + (u3 - u2) * m1;
 }
 
-// 镜头：第一段是匀速跟拍；第二段从跟拍平滑过渡到拉远升高的全景
+// 镜头：第一段是匀速跟拍；第二段从跟拍平滑过渡到拉远升高的全景；第三段跟着行进的队伍
 function camera(t) {
+  if (t > PART2_END) return camera3(t);
   if (t <= PART1_END) return { sig: sigma(t), zoom: ZOOM, off: CAM_OFFSET, k: 0 };
   const D = P2_MOVE_END - PART1_END;
   const u = lin(t, PART1_END, P2_MOVE_END);
@@ -727,6 +745,148 @@ function redField(g, t) {
   g.restore();
 }
 
+// ====================================================================
+// 第三段（26.25–47.07 秒）：士兵齐步向前走。每个小节有一个士兵化成灰，
+// 原地留下一个影子，影子是他原来的样子。队伍补上空位继续走。最后几小节越来越快。
+// ====================================================================
+export const PART3_END = 47.07;
+const MARCH_T0 = PART2_END;
+const STEP = 75;                                     // 每拍一步
+const MARCH_V = STEP / BEAT;                         // 约 160 世界单位/秒
+const BASE = PEOPLE.map((p, i) => FIRST + i * SPACING);
+const C0 = BASE.reduce((a, b) => a + b, 0) / BASE.length;
+
+// 每个人化成灰的时间：不按队列顺序；前 6 个每小节一个，青年在加速段，女孩在音乐骤停的瞬间
+// 下标：0 女孩、1 男孩、2 面包师、3 看报男人、4 青年、5 母亲、6 老人、7 女人
+const VANISH = [PART3_END, 31.875, 28.125, 35.625, 39.375 + 2 * BEAT, 30.0, 33.75, 37.5];
+const DISSOLVE = 0.9;                                // 从头到脚化成灰用时
+const CLOSE_DELAY = 0.6;                             // 化灰开始后多久，后面的人开始补位
+
+// 行进距离：用一小节从静止平滑加速到正常步速（速度曲线是 smoothstep，积分后位置连续、速度连续）
+function marchSmooth(t) {
+  const d = t - MARCH_T0;
+  if (d <= 0) return 0;
+  if (d < BAR) { const u = d / BAR; return MARCH_V * BAR * (u * u * u - 0.5 * u * u * u * u); }
+  return MARCH_V * BAR * 0.5 + MARCH_V * (d - BAR);
+}
+const marchAmp = (t) => smooth(t, MARCH_T0, MARCH_T0 + BEAT);
+// 身体位置：在平滑行进上叠加每拍一次的轻微顿挫，看起来是一步一步走的
+function marchBody(t) {
+  if (t <= MARCH_T0) return 0;
+  const f = mod(t - MARCH_T0, BEAT) / BEAT;
+  return marchSmooth(t) + marchAmp(t) * STEP * 0.5 * (f * f * (3 - 2 * f) - f);
+}
+// 第 i 个人因为前面有人消失而向前补位的距离
+function rankShift(i, t) {
+  let n = 0;
+  for (let j = 0; j < BASE.length; j++) {
+    if (BASE[j] > BASE[i]) n += smooth(t, VANISH[j] + CLOSE_DELAY, VANISH[j] + CLOSE_DELAY + BAR);
+  }
+  return SPACING * n;
+}
+const soldierS = (i, t) => BASE[i] + marchBody(Math.min(t, VANISH[i])) + rankShift(i, Math.min(t, VANISH[i]));
+// 还活着的人的重心（消失的人权重在一小节内降到 0），镜头跟着它
+function centroid(t) {
+  let sw = 0, sx = 0;
+  for (let i = 0; i < BASE.length; i++) {
+    const w = 1 - smooth(t, VANISH[i], VANISH[i] + BAR);
+    sw += w; sx += w * (BASE[i] + rankShift(i, t));
+  }
+  return sx / Math.max(sw, 1e-6);
+}
+function camera3(t) {
+  const sigAt = (tc) => {
+    const u = lin(tc, PART2_END, PART3_END);
+    const k = u < 0.1 ? (u * u) / 0.2 : (u - 0.05) / 0.95;   // 起点速度为 0，之后匀速
+    return {
+      sig: centroid(tc) + marchSmooth(tc) + (WIDE_SIGMA - C0) * (1 - k),
+      zoom: Math.exp(mix(Math.log(WIDE_ZOOM), Math.log(0.62), k)),  // 全程慢慢推近
+    };
+  };
+  const a = sigAt(Math.min(t, PART3_END));
+  let sig = a.sig;
+  if (t > PART3_END) {                                // 最后一个人消失后，镜头用一小节慢慢停下
+    const v = (a.sig - sigAt(PART3_END - 0.01).sig) / 0.01;
+    const u = lin(t, PART3_END, PART3_END + BAR);
+    sig += v * BAR * (u - u * u / 2);
+  }
+  return { sig, zoom: a.zoom, off: WIDE_OFFSET, k: 1 };
+}
+
+// 齐步走的姿势：两条腿每拍交替，后臂前后摆，步枪不动
+function marchPose(t) {
+  const p = soldierPose(1);
+  const amp = marchAmp(t);
+  const th = (Math.PI * (t - MARCH_T0)) / BEAT;
+  const sn = Math.sin(th) * amp;
+  p.kick = [-48 * sn, -22 * Math.max(0, sn)];
+  p.backKick = [48 * sn, -22 * Math.max(0, -sn)];
+  p.backArm = p.backArm.map((q, i) => (i === 2 ? [q[0] + 26 * sn, q[1]] : q));
+  return p;
+}
+
+// 影子：每个人原来的样子（第一段里最有代表性的一个动作），预先画好并染成深红黑色
+const SHADOW_POSE_T = [0.45, 1.29, 2.475, 0, 0.47, 0, 2.75, 1.925];
+const SHADOW_BOX = { x: -700, y: -1700, w: 1600, h: 1820, res: 0.5 };
+let shadowImgs = null;
+function buildShadows() {
+  shadowImgs = PEOPLE.map((p, i) => {
+    const c = document.createElement('canvas');
+    c.width = SHADOW_BOX.w * SHADOW_BOX.res; c.height = SHADOW_BOX.h * SHADOW_BOX.res;
+    const o = c.getContext('2d');
+    o.scale(SHADOW_BOX.res, SHADOW_BOX.res);
+    o.translate(-SHADOW_BOX.x, -SHADOW_BOX.y);
+    person(o, 0, 0, p.spec, p.pose(SHADOW_POSE_T[i]));
+    o.setTransform(1, 0, 0, 1, 0, 0);
+    o.globalCompositeOperation = 'source-in';
+    o.fillStyle = '#21050a';
+    o.fillRect(0, 0, c.width, c.height);
+    const b = document.createElement('canvas');           // 边缘稍微柔化
+    b.width = c.width; b.height = c.height;
+    const bo = b.getContext('2d');
+    bo.filter = 'blur(1.5px)';
+    bo.drawImage(c, 0, 0);
+    return b;
+  });
+}
+function drawShadow(g, i, x, y, a) {
+  if (a <= 0) return;
+  if (!shadowImgs) buildShadows();
+  g.save();
+  g.globalAlpha = a;
+  g.drawImage(shadowImgs[i], x + SHADOW_BOX.x + 30, y + SHADOW_BOX.y - 6, SHADOW_BOX.w, SHADOW_BOX.h);
+  g.restore();
+}
+
+// 化成灰：身体从头到脚被抹去，抹去的那一线不断飘出黑色灰烬，被风吹向右上方
+const hash = (n) => { const s = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
+function ash(g, i, x, y, V, t) {
+  const N = 60;
+  g.fillStyle = C.ink;
+  for (let k = 0; k < N; k++) {
+    const f = k / N;
+    const born = V + DISSOLVE * f;
+    const age = t - born;
+    if (age < 0 || age > 2.2) continue;
+    const r1 = hash(i * 131 + k), r2 = hash(i * 977 + k * 3), r3 = hash(i * 53 + k * 7);
+    const px = x + (r1 - 0.5) * 150 + (90 + r2 * 170) * age;
+    const py = y - 1150 * (1 - f) - (50 + r3 * 130) * age - 30 * age * age;
+    const s = (5 + r3 * 10) * (1 - age / 2.6);
+    g.globalAlpha = 1 - age / 2.2;
+    g.save(); g.translate(px, py); g.rotate(age * (2 + r1 * 4) + k);
+    g.beginPath(); g.moveTo(-s, -s * 0.4); g.lineTo(s * 0.3, -s * 0.7); g.lineTo(s, s * 0.2); g.lineTo(-s * 0.2, s * 0.6); g.closePath(); g.fill();
+    g.restore();
+  }
+  g.globalAlpha = 1;
+}
+
+// 远处的小人消失的时间：在最后 4 小节里按拍落下，越来越密；约三成留到音乐骤停时一起消失
+function bgVanishTime(i) {
+  const r = hash(i + 400);
+  if (r > 0.72) return PART3_END;
+  return 39.375 + Math.floor(Math.pow(r / 0.72, 0.7) * 17) * BEAT;
+}
+
 // ---------- 合成 ----------
 export function queue(g, t) {
   g.drawImage(paper, 0, 0);
@@ -747,8 +907,9 @@ export function queue(g, t) {
     const s = (wx - FEET0[0]) * DIR[0] + (wy - FEET0[1]) * DIR[1];   // 投影到队列方向
     return smooth(s - sw, 0, 810);                                   // 810 = 红色 1.2 秒走过的距离
   };
+  const part3 = t > PART2_END;
   airship(g, t);
-  background(g, shift * 0.45, bgMorph);
+  background(g, shift * 0.45, bgMorph, part3 ? { t, march: (tt) => marchSmooth(tt) * ZOOM * 0.45 } : null);
   distantBirds(g, t);
   g.restore();
   g.save();
@@ -758,25 +919,47 @@ export function queue(g, t) {
 
   redField(g, t);
 
-  // 地面线
-  const a = feetAt(-1200), b = feetAt(FIRST + PEOPLE.length * SPACING + 1600);
+  // 地面线（第三段队伍会往前走很远，所以画得很长）
+  const a = feetAt(-1200), b = feetAt(12000);
   g.strokeStyle = C.ink; g.lineWidth = 2 / Math.max(cam.zoom / ZOOM, 0.3);
   g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
   bootPrints(g);
+
+  // 第三段：影子烙在士兵身后的红色上，画在所有人的后面
+  if (part3) {
+    PEOPLE.forEach((p, i) => {
+      const V = VANISH[i];
+      const [x, y] = feetAt(soldierS(i, V));
+      drawShadow(g, i, x, y, 0.92 * smooth(t, V + 0.2, V + 1.2));
+    });
+  }
 
   // 按队列位置从后往前画：木桩、人、地上的乌鸦
   const items = [{ s: 0, draw: () => postAndCrow(g, t) }];
   const ta = actionTime(t), look = lookAmt(t);
   PEOPLE.forEach((p, i) => {
-    const s = FIRST + i * SPACING;
+    const s = part3 ? soldierS(i, t) : FIRST + i * SPACING;
     items.push({
       s,
       draw: () => {
         const [x, y] = feetAt(s);
-        const e = morphAt(t, s);
-        const pose = p.pose(ta);
-        pose.headTilt = mix(pose.headTilt || 0, 0.4, look);   // 抬头看天
-        person(g, x, y, blendSpec(p.spec, e), blendPose(pose, e));
+        if (!part3) {
+          const e = morphAt(t, s);
+          const pose = p.pose(ta);
+          pose.headTilt = mix(pose.headTilt || 0, 0.4, look);   // 抬头看天
+          person(g, x, y, blendSpec(p.spec, e), blendPose(pose, e));
+          return;
+        }
+        // 齐步走；到了消失时间，身体从头到脚被抹去，抹去的地方飘出灰烬
+        const V = VANISH[i];
+        if (t < V + DISSOLVE) {
+          const cut = y - 1200 * (1 - lin(t, V, V + DISSOLVE));
+          g.save();
+          g.beginPath(); g.rect(x - 500, cut, 1000, y - cut + 80); g.clip();
+          person(g, x, y, blendSpec(p.spec, 1), marchPose(Math.min(t, V)));
+          g.restore();
+        }
+        if (t >= V) ash(g, i, x, y, V, t);
       },
     });
   });

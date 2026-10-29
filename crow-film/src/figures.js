@@ -175,9 +175,10 @@ export function person(g, x, y, spec, pose) {
   const accA = spec.accA !== undefined ? spec.accA : 1;      // 围裙、披肩、围巾、旧帽子的不透明度
   const helmA = spec.helmet || 0;
   const kick = pose.kick || [0, 0];
-  limb(g, [[22, legTop], [26, -20]], legW, shade(legColor, 0.15));
+  const bk = pose.backKick || [0, 0];                         // 后腿的偏移（齐步走时两条腿交替）
+  limb(g, [[22, legTop], [24 + bk[0] * 0.4, -230 + bk[1] * 0.4], [26 + bk[0], -20 + bk[1]]], legW, shade(legColor, 0.15));
   limb(g, [[-24, legTop], [-26 + kick[0] * 0.4, -230 + kick[1] * 0.4], [-28 + kick[0], -20 + kick[1]]], legW, legColor);
-  shoe(g, 22, 0);
+  shoe(g, 22 + bk[0], bk[1]);
   shoe(g, -28 + kick[0], kick[1]);
 
   // 上半身绕髋部前后倾

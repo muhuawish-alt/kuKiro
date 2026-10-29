@@ -1,11 +1,11 @@
-// 播放、音频同步和导出。目前完成前两段（0–26.25 秒）。
-import { W, H } from './draw.js';
-import { queue, PART2_END } from './queue.js';
+// 播放、音频同步和导出。目前完成前三段（0–47.07 秒），多放一小节看音乐骤停后的画面。
+import { W, H, BAR } from './draw.js';
+import { queue, PART3_END } from './queue.js';
 import { canExport, exportWebM } from './export.js';
 
 const AUDIO_START = 44.18;           // 原曲中的起点
-const PREVIEW_END = PART2_END;       // 现阶段播放到第二段结束
-const EXPORT_NAME = '鸦_0-26秒.webm';
+const PREVIEW_END = PART3_END + BAR; // 48.945 秒
+const EXPORT_NAME = '鸦_0-49秒.webm';
 const FILE = 'Kam Ridr - the other side of paradise（顶级智斗）_627244913.mp3';
 // 放在仓库里时音频在 ../；在沙盒工作区时在 ../kuKiro/
 const AUDIO_CANDIDATES = ['../' + FILE, '../kuKiro/' + FILE];
