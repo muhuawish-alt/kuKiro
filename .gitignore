@@ -1,0 +1,7 @@
+node_modules/
+.build/
+.frames/
+.fonts/*.otf
+.fonts/*.ttf
+renders/*.webm
+renders/*.wav
