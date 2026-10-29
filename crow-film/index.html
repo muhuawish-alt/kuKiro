@@ -1,0 +1,27 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>鸦 · 反战短片（代码版）</title>
+<style>
+  html, body { margin: 0; height: 100%; background: #000; color: #ccc; font-family: sans-serif; }
+  #wrap { height: 100%; display: flex; align-items: center; justify-content: center; }
+  canvas { height: 100vh; max-width: 100vw; aspect-ratio: 9 / 16; background: #000; }
+  #ui { position: fixed; left: 12px; bottom: 12px; display: flex; gap: 8px; align-items: center; font-size: 13px; }
+  #ui button { background: #222; color: #ddd; border: 1px solid #444; padding: 6px 12px; cursor: pointer; }
+  #ui.hidden { display: none; }
+</style>
+</head>
+<body>
+<div id="wrap"><canvas id="c" width="1080" height="1920"></canvas></div>
+<div id="ui">
+  <button id="play">播放</button>
+  <button id="rec">导出 WebM</button>
+  <button id="pick">选择音频</button>
+  <input id="file" type="file" accept="audio/*" hidden>
+  <span id="time">0.00 s</span>
+</div>
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
