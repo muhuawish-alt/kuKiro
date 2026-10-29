@@ -5,18 +5,20 @@ export const W = 1080, H = 1920;
 export const BAR = 1.875;          // 一小节（128 BPM）
 export const BEAT = BAR / 4;
 
+// 冷调：纸偏灰绿，个人颜色都压低饱和度，只有红色保持原样
 export const C = {
-  paper: '#efe8da',
-  ink: '#141210',      // 剪影
-  char: '#2c2824',     // 深色衣服
-  warm: '#8c857a',     // 暖灰
-  light: '#c9c1b3',    // 浅灰
-  cream: '#f7f1e3',    // 围裙、襁褓
-  red: '#a3192a',      // 这一段只用在风筝上
-  mustard: '#c9a227',
-  green: '#3f5a4a',
-  blue: '#5b6f82',
-  brown: '#7a4a2a',
+  paper: '#dcdbd3',
+  ink: '#121314',      // 剪影
+  char: '#26282a',     // 深色衣服
+  warm: '#76756f',     // 灰
+  light: '#b9b9b2',    // 浅灰
+  cream: '#e6e5dd',    // 围裙、襁褓
+  red: '#a3192a',      // 风筝、传单上的印章
+  mustard: '#a58f45',
+  green: '#3a4842',
+  blue: '#4b5965',
+  brown: '#5c4536',
+  ash: '#8e9192',      // 灰烬
 };
 
 // ---------- 时间函数 ----------
@@ -136,13 +138,13 @@ export function makePaper() {
     for (let i = 0; i < 9; i++) {
       const x = rnd() * W, y = rnd() * H, r = 160 + rnd() * 420;
       const grd = g.createRadialGradient(x, y, 0, x, y, r);
-      grd.addColorStop(0, 'rgba(150,128,96,0.10)');
-      grd.addColorStop(1, 'rgba(150,128,96,0)');
+      grd.addColorStop(0, 'rgba(88,96,100,0.11)');
+      grd.addColorStop(1, 'rgba(88,96,100,0)');
       g.fillStyle = grd;
       g.fillRect(x - r, y - r, r * 2, r * 2);
     }
     // 纸纤维
-    g.strokeStyle = 'rgba(120,104,80,0.08)';
+    g.strokeStyle = 'rgba(70,78,82,0.08)';
     g.lineWidth = 1;
     for (let i = 0; i < 500; i++) {
       const x = rnd() * W, y = rnd() * H, a = rnd() * Math.PI, l = 6 + rnd() * 18;
@@ -150,8 +152,8 @@ export function makePaper() {
     }
     // 四角压暗
     const v = g.createRadialGradient(W / 2, H / 2, H * 0.35, W / 2, H / 2, H * 0.75);
-    v.addColorStop(0, 'rgba(60,48,32,0)');
-    v.addColorStop(1, 'rgba(60,48,32,0.16)');
+    v.addColorStop(0, 'rgba(20,24,28,0)');
+    v.addColorStop(1, 'rgba(20,24,28,0.26)');
     g.fillStyle = v;
     g.fillRect(0, 0, W, H);
   });
@@ -170,26 +172,28 @@ export function flyingCrow(g, x, y, size, flap, dir = 1, color = C.ink) {
   g.beginPath(); g.moveTo(38, -9); g.lineTo(56, -3); g.lineTo(38, 1); g.fill();
   // 尾羽
   g.beginPath(); g.moveTo(-28, -4); g.lineTo(-58, -12); g.lineTo(-62, 6); g.lineTo(-28, 6); g.fill();
-  // 翅膀：根部在身体上，翅尖随拍动上下；翅尖有五根分开的圆头飞羽
-  const tipY = -64 * flap;
-  for (const side of [1, 0]) {
-    const k = side ? 0.8 : 1;            // 远侧翅膀略小、略淡
-    g.fillStyle = side ? shade(color, -0.6) : color;
-    const T = [-14 * k, tipY * k];
+  // 翅膀：先画一只向上张开的翅膀（前缘弧线、翅尖五根分开的飞羽、后缘回到身体），
+  // 再按 flap 在竖直方向缩放：1 是翅膀在上，0 是展平，-1 是翅膀在下
+  const wing = (k) => {
     g.beginPath();
-    g.moveTo(-8, -3);
-    g.quadraticCurveTo(-4, tipY * 0.55 * k, T[0], T[1]);
-    g.lineTo(T[0] + 22 * k, T[1] + 6 * Math.sign(flap || 1));
-    g.quadraticCurveTo(16, tipY * 0.45 * k, 14, 2);
+    g.moveTo(16, -2);                                             // 前缘根部（肩）
+    g.quadraticCurveTo(14, -40 * k, -6 * k, -74 * k);             // 前缘到翅尖
+    const fingers = [[-6, -74], [-16, -70], [-24, -63], [-31, -54], [-37, -44]];
+    for (let i = 1; i < fingers.length; i++) {                    // 翅尖的飞羽：每根之间切一个小口
+      const [x0, y0] = fingers[i - 1], [x1, y1] = fingers[i];
+      g.lineTo((x0 + x1) / 2 * k + 5, (y0 + y1) / 2 * k + 9 * k);
+      g.lineTo(x1 * k, y1 * k);
+    }
+    g.quadraticCurveTo(-30 * k, -22 * k, -12, -2);                // 后缘回到身体
     g.closePath();
     g.fill();
-    const ang = Math.atan2(T[1], T[0] + 8);
-    for (let f = 0; f < 5; f++) {
-      const fx = T[0] + f * 5.5 * k, fy = T[1] + f * 1.6 * Math.sign(flap || 1);
-      g.beginPath();
-      g.ellipse(fx + Math.cos(ang) * 9, fy + Math.sin(ang) * 9, 12 * k, 3.4 * k, ang, 0, Math.PI * 2);
-      g.fill();
-    }
+  };
+  for (const side of [1, 0]) {
+    g.save();
+    g.fillStyle = side ? shade(color, -0.6) : color;              // 远侧翅膀略浅
+    g.scale(1, (side ? 0.8 : 1) * (Math.abs(flap) < 0.06 ? 0.06 * Math.sign(flap || 1) : flap));
+    wing(side ? 0.85 : 1);
+    g.restore();
   }
   g.restore();
 }

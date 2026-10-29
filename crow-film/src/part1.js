@@ -23,6 +23,19 @@ const SCREEN_DIR = [-DIR[0], -DIR[1]];              // 镜头前进时，画面�
 
 const paper = makePaper();
 
+// ---------- 引子：抬头 ----------
+// 第 13.125 秒起，远处飞艇的影子压过来，所有人同时停下手里的事，抬头看天，约一小节后再继续。
+// 动作时间对抬头程度积分：动作平滑地停下又恢复；停下的总时长正好一小节，恢复后动作仍落在小节线上。
+const LOOK0 = 13.125, LOOK1 = 15.475;              // 2.35 秒窗口，减去两段渐变的一半 = 1.875 秒
+const lookAmt = (t) => smooth(t, LOOK0, LOOK0 + 0.5) * (1 - smooth(t, LOOK1 - 0.45, LOOK1));
+function actionTime(t) {
+  if (t <= LOOK0) return t;
+  const end = Math.min(t, LOOK1), n = 48, dt = (end - LOOK0) / n;
+  let acc = 0;
+  for (let i = 0; i < n; i++) acc += lookAmt(LOOK0 + (i + 0.5) * dt) * dt;
+  return t - acc;
+}
+
 // ---------- 乌鸦（站姿，来自 raven 图标） ----------
 // 图标朝右，脚在图标坐标 (300, 480) 附近，眼睛在 (354, 62)
 function perchedCrow(g, x, footY, size, { face = -1, peck = 0, eyeOpen = 1, glint = true } = {}) {
@@ -77,10 +90,15 @@ function postAndCrow(g, t) {
 }
 
 // ---------- 地上的乌鸦 ----------
+// 越靠近队首，地上的乌鸦越多
 const GROUND_CROWS = [
   { s: 790, phase: 0.2, size: 200 },
   { s: 1730, phase: 0.9, size: 220 },
+  { s: 2420, phase: 0.4, size: 180 },
   { s: 2650, phase: 0.5, size: 190 },
+  { s: 2980, phase: 1.3, size: 210 },
+  { s: 3260, phase: 0.7, size: 180 },
+  { s: 3480, phase: 1.6, size: 200 },
 ];
 function groundCrow(g, c, t) {
   const [fx, fy] = feetAt(c.s);
@@ -102,7 +120,7 @@ function groundCrow(g, c, t) {
 // ---------- 八个人 ----------
 // 顺序从队尾到队首。每个人的动作周期都是小节的整数倍，动作重点落在小节线上。
 const note = (g, x, y, a) => {
-  g.save(); g.globalAlpha = a; g.fillStyle = C.ink; g.strokeStyle = C.ink; g.lineWidth = 4;
+  g.save(); g.globalAlpha = a * 0.7; g.fillStyle = C.warm; g.strokeStyle = C.warm; g.lineWidth = 4;
   g.beginPath(); g.ellipse(x, y, 13, 9, -0.4, 0, Math.PI * 2); g.fill();
   g.beginPath(); g.moveTo(x + 11, y - 4); g.lineTo(x + 11, y - 56); g.quadraticCurveTo(x + 30, y - 44, x + 28, y - 26); g.stroke();
   g.restore();
@@ -208,8 +226,12 @@ const PEOPLE = [
           // 报纸：浅灰底、黑色标题、灰色文字行、一张小图
           g.fillStyle = C.light;
           g.beginPath(); g.moveTo(-250, -772); g.lineTo(-70, -742); g.lineTo(-70, -500); g.lineTo(-250, -522); g.closePath(); g.fill();
+          // 头条是两道粗黑条，配图是一顶钢盔：战争已经上了报纸
           g.fillStyle = C.ink; g.beginPath(); g.moveTo(-238, -752); g.lineTo(-84, -727); g.lineTo(-84, -705); g.lineTo(-238, -730); g.fill();
+          g.beginPath(); g.moveTo(-238, -724); g.lineTo(-120, -705); g.lineTo(-120, -694); g.lineTo(-238, -712); g.fill();
           g.fillStyle = C.warm; g.fillRect(-232, -700, 60, 52);
+          g.fillStyle = C.ink;
+          g.beginPath(); g.arc(-202, -660, 18, Math.PI, 0); g.fill(); g.fillRect(-224, -662, 44, 5);
           g.strokeStyle = C.warm; g.lineWidth = 3;
           for (let i = 0; i < 7; i++) {
             const y = -690 + i * 22;
@@ -362,37 +384,139 @@ function background(g, shift) {
   g.beginPath(); g.moveTo(l0[0], l0[1]); g.lineTo(l1[0], l1[1]); g.stroke();
 }
 
-// 远处的鸟群
+// 远处的鸟群：越来越多，新加入的鸟慢慢浮现
 function distantBirds(g, t) {
   g.strokeStyle = C.warm; g.lineWidth = 3; g.lineCap = 'round';
-  for (let i = 0; i < 7; i++) {
-    const x = mod(200 + i * 70 + 60 * t, W + 400) - 200;
-    const y = 300 + (i % 3) * 40 + 12 * Math.sin(t * 1.3 + i);
+  for (let i = 0; i < 24; i++) {
+    const appear = i < 6 ? -1 : 2 + i * 0.6;
+    const a = smooth(t, appear, appear + 1.2);
+    if (a <= 0) continue;
+    const x = mod(200 + i * 83 + 60 * t, W + 400) - 200;
+    const y = 240 + (i % 5) * 46 + 12 * Math.sin(t * 1.3 + i);
     const f = 8 * Math.sin(t * 7 + i);
+    g.globalAlpha = a;
     g.beginPath(); g.moveTo(x - 14, y - f); g.quadraticCurveTo(x - 6, y - 4, x, y); g.quadraticCurveTo(x + 6, y - 4, x + 14, y - f); g.stroke();
+  }
+  g.globalAlpha = 1;
+}
+
+// ---------- 远处的飞艇：第 4.5 秒起从右侧慢慢浮现，向左驶过 ----------
+function airship(g, t) {
+  const a = smooth(t, 4.5, 8.5) * 0.85;
+  if (a <= 0) return;
+  const x = 1250 - 72 * (t - 4.5), y = 230;
+  g.save();
+  g.globalAlpha = a;
+  g.filter = 'blur(1.5px)';
+  g.fillStyle = '#5a5f63';
+  // 艇身：左边是圆钝的艇首，右边逐渐收细成艇尾
+  g.beginPath();
+  g.moveTo(x - 300, y);
+  g.bezierCurveTo(x - 300, y - 80, x - 160, y - 78, x, y - 74);
+  g.bezierCurveTo(x + 180, y - 70, x + 300, y - 30, x + 340, y);
+  g.bezierCurveTo(x + 300, y + 30, x + 180, y + 70, x, y + 74);
+  g.bezierCurveTo(x - 160, y + 78, x - 300, y + 80, x - 300, y);
+  g.fill();
+  // 尾部十字稳定翼：上下两片梯形，中间一片水平翼
+  g.beginPath(); g.moveTo(x + 210, y - 46); g.lineTo(x + 250, y - 104); g.lineTo(x + 318, y - 104); g.lineTo(x + 322, y - 14); g.closePath(); g.fill();
+  g.beginPath(); g.moveTo(x + 210, y + 46); g.lineTo(x + 250, y + 104); g.lineTo(x + 318, y + 104); g.lineTo(x + 322, y + 14); g.closePath(); g.fill();
+  g.fillStyle = '#4a4f53';
+  g.fillRect(x + 230, y - 6, 110, 12);
+  // 吊舱和吊索
+  g.fillStyle = '#4a4f53';
+  g.beginPath(); g.roundRect(x - 120, y + 82, 150, 30, 8); g.fill();
+  g.strokeStyle = '#4a4f53'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(x - 110, y + 84); g.lineTo(x - 90, y + 70); g.moveTo(x + 20, y + 84); g.lineTo(x, y + 72); g.stroke();
+  // 蒙皮的骨架线
+  g.strokeStyle = 'rgba(220,219,211,0.3)'; g.lineWidth = 2;
+  for (let i = -3; i <= 3; i++) { g.beginPath(); g.ellipse(x + i * 72, y, 12, 72 - Math.abs(i) * 5, 0, -Math.PI / 2, Math.PI / 2); g.stroke(); }
+  g.beginPath(); g.moveTo(x - 280, y - 10); g.lineTo(x + 320, y - 4); g.stroke();
+  g.restore();
+}
+
+// 飞艇的影子：第 12 秒起从右侧压过地面
+function airshipShadow(g, t) {
+  const a = smooth(t, 12, 13.6);
+  if (a <= 0) return;
+  const cx = 1700 - 190 * (t - 12);
+  g.save();
+  g.globalCompositeOperation = 'multiply';
+  const grd = g.createRadialGradient(cx, 1350, 100, cx, 1350, 1100);
+  grd.addColorStop(0, `rgba(70,76,82,${0.55 * a})`);
+  grd.addColorStop(0.6, `rgba(120,126,130,${0.35 * a})`);
+  grd.addColorStop(1, 'rgba(255,255,255,0)');
+  g.fillStyle = grd;
+  g.fillRect(0, 0, W, H);
+  g.restore();
+}
+
+// 地上的军靴脚印：越靠近队首越清楚
+function bootPrints(g) {
+  for (let s = 900; s < 3900; s += 64) {
+    const a = 0.32 * lin(s, 900, 2600);
+    const [x, y] = feetAt(s);
+    for (const [dx, dy] of [[0, 46], [26, 74]]) {
+      g.save();
+      g.translate(x + dx, y + dy); g.rotate(-0.34);
+      g.fillStyle = `rgba(18,19,20,${a})`;
+      g.beginPath(); g.ellipse(0, 0, 22, 8, 0, 0, Math.PI * 2); g.fill();
+      g.beginPath(); g.ellipse(30, 0, 10, 7, 0, 0, Math.PI * 2); g.fill();
+      g.restore();
+    }
   }
 }
 
-// ---------- 风里飘的花瓣、叶子、纸片 ----------
+// ---------- 风里飘的东西：灰烬、枯叶、盖着红印的传单 ----------
+// 灰烬随时间越来越多
 function windDebris(g, t, shift) {
-  for (let i = 0; i < 22; i++) {
-    const type = i % 3;
+  for (let i = 0; i < 34; i++) {
+    const type = i % 4;
+    const appear = i < 16 ? -1 : 1.5 + (i - 16) * 0.7;
+    const alpha = smooth(t, appear, appear + 1);
+    if (alpha <= 0) continue;
     const x = mod(i * 173 + 150 * t + SCREEN_DIR[0] * shift * 1.2, W + 300) - 150;
     const y = mod(i * 311 + 26 * Math.sin(t * 0.8 + i) + SCREEN_DIR[1] * shift * 1.2 - 18 * t, H + 200) - 100;
     g.save();
+    g.globalAlpha = alpha;
     g.translate(x, y);
     g.rotate(t * (0.8 + (i % 5) * 0.4) + i);
-    if (type === 0) { g.fillStyle = C.mustard; g.beginPath(); g.ellipse(0, 0, 14, 5, 0, 0, Math.PI * 2); g.fill(); }
-    else if (type === 1) {
-      g.fillStyle = C.green; g.beginPath(); g.ellipse(0, 0, 20, 8, 0, 0, Math.PI * 2); g.fill();
-      g.strokeStyle = C.paper; g.lineWidth = 1.5; g.beginPath(); g.moveTo(-16, 0); g.lineTo(16, 0); g.stroke();
-    } else {
-      g.fillStyle = C.light; g.fillRect(-14, -10, 28, 20);
+    if (type === 0 || type === 3) {                      // 灰烬
+      g.fillStyle = type ? C.ash : '#5d6062';
+      g.beginPath(); g.moveTo(-8, -3); g.lineTo(2, -6); g.lineTo(9, 1); g.lineTo(-1, 6); g.closePath(); g.fill();
+    } else if (type === 1) {                             // 枯叶
+      g.fillStyle = C.brown; g.beginPath(); g.ellipse(0, 0, 18, 7, 0, 0, Math.PI * 2); g.fill();
+      g.strokeStyle = C.paper; g.lineWidth = 1.5; g.beginPath(); g.moveTo(-14, 0); g.lineTo(14, 0); g.stroke();
+    } else {                                             // 传单：黑色标题、灰色文字、右下角红印
+      g.fillStyle = C.light; g.fillRect(-16, -12, 32, 24);
+      g.fillStyle = C.ink; g.fillRect(-12, -9, 24, 4);
       g.strokeStyle = C.warm; g.lineWidth = 1.5;
-      for (let k = 0; k < 3; k++) { g.beginPath(); g.moveTo(-10, -5 + k * 5); g.lineTo(10, -5 + k * 5); g.stroke(); }
+      for (let k = 0; k < 2; k++) { g.beginPath(); g.moveTo(-12, -1 + k * 5); g.lineTo(12, -1 + k * 5); g.stroke(); }
+      g.fillStyle = C.red; g.fillRect(4, 3, 8, 7);
     }
     g.restore();
   }
+}
+
+// ---------- 调色：随时间越来越冷、越来越灰，天空压暗 ----------
+function grade(g, t) {
+  const p = lin(t, 0, PART1_END);
+  g.save();
+  // 只去掉一部分饱和度：颜色要留到下一段，由红色把它抹掉
+  g.globalCompositeOperation = 'saturation';
+  g.globalAlpha = 0.1 + 0.28 * p;
+  g.fillStyle = 'hsl(0,0%,50%)';
+  g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = 'multiply';
+  g.globalAlpha = 1;
+  g.fillStyle = `rgba(200,210,215,${0.22 + 0.22 * p})`;
+  g.fillRect(0, 0, W, H);
+  g.globalCompositeOperation = 'source-over';
+  const sky = g.createLinearGradient(0, 0, 0, H * 0.5);
+  sky.addColorStop(0, `rgba(28,32,36,${0.22 + 0.22 * p})`);
+  sky.addColorStop(1, 'rgba(28,32,36,0)');
+  g.fillStyle = sky;
+  g.fillRect(0, 0, W, H * 0.5);
+  g.restore();
 }
 
 // ---------- 前景：草、电线杆、飞过的乌鸦（速度是主镜头的 2.3 倍，带景深模糊） ----------
@@ -422,6 +546,8 @@ function foreground(g, t, shift) {
     fg.fillRect(x - 28, 0, 56, H);
     fg.fillRect(x - 150, 210, 300, 18);
     for (const dx of [-120, -60, 60, 120]) { fg.fillStyle = C.char; fg.fillRect(x + dx - 6, 182, 12, 30); }
+    perchedCrow(fg, x - 92, 212, 130, { face: -1, glint: false });     // 横担上也站着乌鸦
+    perchedCrow(fg, x + 100, 212, 120, { face: 1, glint: false });
   }
   g.save();
   g.filter = 'blur(5px)';
@@ -443,6 +569,7 @@ export function part1(g, t) {
   const sig = sigma(t);
   const shift = (sig - SIGMA0) * ZOOM;              // 主镜头已经移动的屏幕距离
 
+  airship(g, t);
   background(g, shift * 0.45);
   distantBirds(g, t);
 
@@ -456,19 +583,31 @@ export function part1(g, t) {
   const a = feetAt(-400), b = feetAt(FIRST + PEOPLE.length * SPACING + 600);
   g.strokeStyle = C.ink; g.lineWidth = 2;
   g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
+  bootPrints(g);
 
   // 按队列位置从后往前画：木桩、人、地上的乌鸦
   const items = [{ s: 0, draw: () => postAndCrow(g, t) }];
+  const ta = actionTime(t), look = lookAmt(t);
   PEOPLE.forEach((p, i) => {
     const s = FIRST + i * SPACING;
-    items.push({ s, draw: () => { const [x, y] = feetAt(s); person(g, x, y, p.spec, p.pose(t)); } });
+    items.push({
+      s,
+      draw: () => {
+        const [x, y] = feetAt(s);
+        const pose = p.pose(ta);
+        pose.headTilt = mix(pose.headTilt || 0, 0.4, look);   // 抬头看天
+        person(g, x, y, p.spec, pose);
+      },
+    });
   });
   GROUND_CROWS.forEach((c) => items.push({ s: c.s, draw: () => groundCrow(g, c, t) }));
   items.sort((p, q) => p.s - q.s).forEach((it) => it.draw());
   g.restore();
 
+  airshipShadow(g, t);
   windDebris(g, t, shift);
   foreground(g, t, shift);
+  grade(g, t);
 
   // 开头两拍从黑色淡入
   const fade = 1 - lin(t, 0, 0.94);
