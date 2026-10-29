@@ -4,8 +4,8 @@
 
 ## 在线观看 / 下载
 
-- **在线播放**：<https://muhuawish-alt.github.io/echo-opening/>（点「开始放映」，建议戴耳机、全屏）
-- **下载**：<https://github.com/muhuawish-alt/echo-opening/releases/latest>
+- **下载**：<https://github.com/muhuawish-alt/kuKiro/releases/tag/echo-v1.0>
+- 下载 `echo.html` 后用浏览器打开，点「开始放映」（建议戴耳机、全屏）
 
 | 文件 | 说明 |
 | --- | --- |
