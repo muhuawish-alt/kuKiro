@@ -3,5 +3,3 @@ node_modules/
 .frames/
 .fonts/*.otf
 .fonts/*.ttf
-renders/*.webm
-renders/*.wav

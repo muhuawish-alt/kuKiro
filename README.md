@@ -4,14 +4,16 @@
 
 ## 在线观看 / 下载
 
-- **下载**：<https://github.com/muhuawish-alt/kuKiro/releases/tag/echo-v1.0>
-- 下载 `echo.html` 后用浏览器打开，点「开始放映」（建议戴耳机、全屏）
+## 下载
 
-| 文件 | 说明 |
-| --- | --- |
-| `echo.html` | **单文件成品**（929 KB，内含 three.js、字体子集和全部代码）。下载后用 Chrome / Edge / Safari 直接打开，不需要联网，也不需要服务器 |
-| `ECHO.webm` | 离线逐帧渲染的预览视频，1280×536、24fps、VP8 + Opus 声轨，88 秒 |
-| `echo-score.wav` | 单独导出的配乐（48 kHz 立体声） |
+| 文件 | 下载 | 说明 |
+| --- | --- | --- |
+| `echo.html` | [下载](https://github.com/muhuawish-alt/kuKiro/raw/echo-opening/dist/echo.html) | **单文件成品**（929 KB，内含 three.js、字体子集和全部代码）。用 Chrome / Edge / Safari 打开，不需要联网，也不需要服务器 |
+| `ECHO.webm` | [下载](https://github.com/muhuawish-alt/kuKiro/raw/echo-opening/renders/ECHO.webm) | 离线逐帧渲染的预览视频，1280×536、24fps、VP8 + Opus 声轨，88 秒 |
+| `echo-score.wav` | [下载](https://github.com/muhuawish-alt/kuKiro/raw/echo-opening/renders/echo-score.wav) | 单独导出的配乐（48 kHz 立体声） |
+| 全部打包 | [zip](https://github.com/muhuawish-alt/kuKiro/archive/refs/heads/echo-opening.zip) | 整个分支，约 110 MB |
+
+如果点开 `echo.html` 的链接后浏览器显示的是源代码，请按 Ctrl+S（Mac 上按 ⌘S）另存为 `.html` 文件再打开，或者直接下载 zip 包。打开后点「开始放映」，建议戴耳机、全屏观看。
 
 仓库里的 `dist/echo.html` 和 `docs/index.html` 是同一个文件；`stills/` 是从成片里截取的关键帧。
 
