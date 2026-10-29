@@ -1,10 +1,12 @@
+// 队列场景，包含两段：
 // 第一段（0–16.875 秒）：一列不同的普通人沿对角线排开，每人做着自己的小事。
-// 镜头从队尾木桩上的乌鸦开始，匀速沿队列移到队首；前景和背景按不同速度移动，做出景深。
+//   镜头从队尾木桩上的乌鸦开始，匀速沿队列移到队首；前景和背景按不同速度移动，做出景深。
+// 第二段（16.875–26.25 秒）：红色从队首漫向队尾，经过谁，谁就变成同样的士兵；镜头拉远成全景。
 import {
-  W, H, BAR, C, lin, smooth, mix, wave, pulse, phaseIn, mod, shade,
+  W, H, BAR, C, lin, smooth, mix, mixColor, wave, pulse, phaseIn, mod, shade,
   icon, iconPath, makePaper, flyingCrow, garment,
 } from './draw.js';
-import { person } from './figures.js';
+import { person, rifle } from './figures.js';
 
 export const PART1_END = 16.875;
 
@@ -500,15 +502,16 @@ function windDebris(g, t, shift) {
 // ---------- 调色：随时间越来越冷、越来越灰，天空压暗 ----------
 function grade(g, t) {
   const p = lin(t, 0, PART1_END);
+  const r = redAmt(t);                               // 红色铺开后，去色和冷色都减弱，保住红色的浓度
   g.save();
   // 只去掉一部分饱和度：颜色要留到下一段，由红色把它抹掉
   g.globalCompositeOperation = 'saturation';
-  g.globalAlpha = 0.1 + 0.28 * p;
+  g.globalAlpha = (0.1 + 0.28 * p) * (1 - r);
   g.fillStyle = 'hsl(0,0%,50%)';
   g.fillRect(0, 0, W, H);
   g.globalCompositeOperation = 'multiply';
   g.globalAlpha = 1;
-  g.fillStyle = `rgba(200,210,215,${0.22 + 0.22 * p})`;
+  g.fillStyle = `rgba(200,210,215,${(0.22 + 0.22 * p) * (1 - 0.75 * r)})`;
   g.fillRect(0, 0, W, H);
   g.globalCompositeOperation = 'source-over';
   const sky = g.createLinearGradient(0, 0, 0, H * 0.5);
@@ -521,22 +524,26 @@ function grade(g, t) {
 
 // ---------- 前景：草、电线杆、飞过的乌鸦（速度是主镜头的 2.3 倍，带景深模糊） ----------
 const FG_K = 2.3;
+const GREEN_DARK = '#262f2b';                        // C.green 加深 35%
 const fgLayer = document.createElement('canvas');
 fgLayer.width = W; fgLayer.height = H;
 const fg = fgLayer.getContext('2d');
 const POLE_TIMES = [3.6, 9.6, 14.6];
 
-function foreground(g, t, shift) {
+function foreground(g, t, shift, rise) {
   const v = SPEED_PX * FG_K * SCREEN_DIR[0];      // 前景横向速度
   fg.clearRect(0, 0, W, H);
-  // 草
+  // 草：镜头升起时向下滑出画面；红色铺开后变成黑色剪影
+  const r = redAmt(t);
   for (let i = 0; i < 44; i++) {
     const x = mod(i * 37 + shift * FG_K * SCREEN_DIR[0], W + 240) - 120;
     const h = 90 + ((i * 53) % 7) * 22;
     const bend = 18 * wave(t + i * 0.13, 2.5) + 24;
-    fg.strokeStyle = i % 3 === 0 ? C.ink : shade(C.green, (i % 2) * 0.35);
+    const base = i % 2 ? GREEN_DARK : C.green;
+    fg.strokeStyle = i % 3 === 0 ? C.ink : mixColor(base, C.ink, r);
     fg.lineWidth = 9 + (i % 3) * 3; fg.lineCap = 'round';
-    fg.beginPath(); fg.moveTo(x, H + 10); fg.quadraticCurveTo(x + bend * 0.3, H - h * 0.6, x + bend, H - h); fg.stroke();
+    const by = H + 10 + rise;
+    fg.beginPath(); fg.moveTo(x, by); fg.quadraticCurveTo(x + bend * 0.3, by - h * 0.6, x + bend, by - h); fg.stroke();
   }
   // 电线杆
   for (const T of POLE_TIMES) {
@@ -563,25 +570,173 @@ function foreground(g, t, shift) {
   }
 }
 
-// ---------- 合成 ----------
-export function part1(g, t) {
-  g.drawImage(paper, 0, 0);
-  const sig = sigma(t);
-  const shift = (sig - SIGMA0) * ZOOM;              // 主镜头已经移动的屏幕距离
+// ====================================================================
+// 第二段（16.875–26.25 秒）：红色从队首漫向队尾，经过谁，谁就变成同样的士兵
+// ====================================================================
+export const PART2_END = 26.25;
+const P2_MOVE_END = PART1_END + 3 * BAR;            // 22.5 秒：镜头完成拉远，之后静止
+// 全景停在队尾一侧：女孩和男孩的变形在画面里看得清，队伍向左延伸出画面，像没有尽头
+const WIDE_SIGMA = 1300, WIDE_ZOOM = 0.45, WIDE_OFFSET = [0, -444];
 
+// 三次 Hermite 插值：保证起点的位置和速度都与第一段衔接，终点速度为 0
+function hermite(p0, m0, p1, m1, u) {
+  const u2 = u * u, u3 = u2 * u;
+  return (2 * u3 - 3 * u2 + 1) * p0 + (u3 - 2 * u2 + u) * m0 + (-2 * u3 + 3 * u2) * p1 + (u3 - u2) * m1;
+}
+
+// 镜头：第一段是匀速跟拍；第二段从跟拍平滑过渡到拉远升高的全景
+function camera(t) {
+  if (t <= PART1_END) return { sig: sigma(t), zoom: ZOOM, off: CAM_OFFSET, k: 0 };
+  const D = P2_MOVE_END - PART1_END;
+  const u = lin(t, PART1_END, P2_MOVE_END);
+  const v1 = (SIGMA1 - SIGMA0) / PART1_END;        // 第一段结尾的速度（世界单位/秒）
+  const sig = hermite(SIGMA1, v1 * D, WIDE_SIGMA, 0, u);
+  const k = u * u * (3 - 2 * u);                    // 缩放和偏移：起点、终点速度都为 0
+  const zoom = Math.exp(mix(Math.log(ZOOM), Math.log(WIDE_ZOOM), k));
+  const off = [mix(CAM_OFFSET[0], WIDE_OFFSET[0], k), mix(CAM_OFFSET[1], WIDE_OFFSET[1], k)];
+  return { sig, zoom, off, k };
+}
+
+// 红色的前沿：沿队列匀速从队首外（s=4300）移到队尾外（s=-1400），共 4.5 小节，最后整个画面都是红色
+const WAVE_S0 = 4300, WAVE_S1 = -1400, WAVE_T1 = PART1_END + 4.5 * BAR;
+const waveS = (t) => mix(WAVE_S0, WAVE_S1, lin(t, PART1_END, WAVE_T1));
+const redAmt = (t) => smooth(t, PART1_END, PART1_END + 4);
+const MORPH_TIME = 1.2;                             // 一个人变成士兵用时
+// 第 i 个人（队列位置 s）被红色经过后的变形进度 0..1
+function morphAt(t, s) {
+  if (t <= PART1_END) return 0;
+  const tPass = PART1_END + ((WAVE_S0 - s) / (WAVE_S0 - WAVE_S1)) * (WAVE_T1 - PART1_END);
+  return smooth(t, tPass, tPass + MORPH_TIME);
+}
+
+// 士兵：同样的身高、同样的军大衣、钢盔、肩扛步枪、一动不动
+const SOLDIER = { scale: 1.0, coat: '#1c1d1f', legs: C.ink, hem: -300, hunch: 0 };
+const RIFLE_BUTT = [-50, -520], RIFLE_ANGLE = 0.27;          // 枪托在胸前，枪管斜靠在肩上
+function soldierPose(e) {
+  return {
+    headTilt: 0, lean: 0, kick: [0, 0], hemWave: 0, hairWave: 0,
+    arm: [[-24, -660], [-64, -600], [-46, -540]],
+    backArm: [[34, -660], [52, -545], [48, -445]],
+    prop(g) {
+      g.save();
+      g.translate(RIFLE_BUTT[0], RIFLE_BUTT[1]);
+      g.rotate(RIFLE_ANGLE);
+      rifle(g, e);
+      g.restore();
+    },
+  };
+}
+
+const lerpPts = (a, b, e) => a.map((p, i) => [mix(p[0], b[i][0], e), mix(p[1], b[i][1], e)]);
+const faded = (fn, a) => fn && a > 0 ? (g) => { const a0 = g.globalAlpha; g.globalAlpha = a0 * a; fn(g); g.globalAlpha = a0; } : null;
+
+// 把普通人的外观和姿势，按 e 混合成士兵
+function blendSpec(spec, e) {
+  if (e <= 0) return spec;
+  const dress = spec.dress ? 1 : 0;
+  const hem0 = spec.dress ? (spec.dressLen || -170) : -(spec.coatLen || 400);
+  return {
+    ...spec,
+    scale: mix(spec.scale, SOLDIER.scale, e),
+    coat: mixColor(spec.coat || C.char, SOLDIER.coat, e),
+    legs: mixColor(spec.legs || C.ink, SOLDIER.legs, e),
+    dressAmt: dress * (1 - e),
+    hem: mix(hem0, SOLDIER.hem, e),
+    hunch: mix(spec.hunch || 0, 0, e),
+    patA: 1 - e,
+    accA: 1 - e,
+    helmet: e,
+  };
+}
+function blendPose(a, e) {
+  if (e <= 0) return a;
+  const b = soldierPose(e);
+  const arm0 = a.arm || [[-24, -660], [-40, -545], [-44, -440]];
+  const back0 = a.backArm || [[34, -660], [54, -545], [50, -445]];
+  const k0 = a.kick || [0, 0];
+  return {
+    headTilt: mix(a.headTilt || 0, 0, e),
+    lean: mix(a.lean || 0, 0, e),
+    kick: [mix(k0[0], 0, e), mix(k0[1], 0, e)],
+    hemWave: mix(a.hemWave || 0, 0, e),
+    hairWave: mix(a.hairWave || 0, 0, e),
+    arm: lerpPts(arm0, b.arm, e),
+    backArm: lerpPts(back0, b.backArm, e),
+    backArmFront: e < 0.5 ? a.backArmFront : false,
+    ground: faded(a.ground, 1 - e),
+    behind: faded(a.behind, 1 - e),
+    prop: (g) => { const f = faded(a.prop, 1 - e); if (f) f(g); b.prop(g); },
+    over: faded(a.over, 1 - e),
+  };
+}
+
+// 红色区域：前沿是一条与队列垂直、带墨迹起伏的边，前沿之前（队首一侧）全部是红色。
+// 用正片叠底画在纸上，纸纹、远处的人和飞艇都会透出来变成暗红。
+const PERP = [-DIR[1], DIR[0]];
+function redField(g, t) {
+  if (t <= PART1_END) return;
+  const sw = waveS(t);
+  const F = feetAt(sw);
+  const edge = [];
+  for (let u = -7000; u <= 7000; u += 90) {
+    const n = 70 * Math.sin(u * 0.004 + t * 1.3) + 38 * Math.sin(u * 0.011 - t * 2.1) + 18 * Math.sin(u * 0.031 + t * 3.7);
+    edge.push([F[0] + PERP[0] * u + DIR[0] * n, F[1] + PERP[1] * u + DIR[1] * n]);
+  }
+  const far = 20000;
+  g.save();
+  g.globalCompositeOperation = 'multiply';
+  g.beginPath();
+  g.moveTo(edge[0][0], edge[0][1]);
+  edge.forEach((p) => g.lineTo(p[0], p[1]));
+  const last = edge[edge.length - 1];
+  g.lineTo(last[0] + DIR[0] * far, last[1] + DIR[1] * far);
+  g.lineTo(edge[0][0] + DIR[0] * far, edge[0][1] + DIR[1] * far);
+  g.closePath();
+  g.fillStyle = C.red;
+  g.fill();
+  // 前沿一道更深的墨边
+  g.strokeStyle = 'rgba(110,8,20,0.55)';
+  g.lineWidth = 26;
+  g.lineJoin = 'round';
+  g.beginPath(); g.moveTo(edge[0][0], edge[0][1]); edge.forEach((p) => g.lineTo(p[0], p[1])); g.stroke();
+  // 前沿前方的墨点：固定在地上，前沿靠近时慢慢渗出来
+  for (let k = 0; k < 90; k++) {
+    const s = 4400 - k * 52, u = ((k * 977) % 2600) - 1300;
+    const a = smooth(sw - s, 260, 60) * (sw > s ? 1 : 0);
+    if (a <= 0) continue;
+    const P = feetAt(s);
+    g.fillStyle = `rgba(163,25,42,${0.85 * a})`;
+    g.beginPath(); g.arc(P[0] + PERP[0] * u, P[1] + PERP[1] * u, 10 + (k % 5) * 9, 0, Math.PI * 2); g.fill();
+  }
+  g.restore();
+}
+
+// ---------- 合成 ----------
+export function queue(g, t) {
+  g.drawImage(paper, 0, 0);
+  const cam = camera(t);
+  const shift = (cam.sig - SIGMA0) * ZOOM;          // 视差层按镜头沿队列的位置移动
+
+  // 远景：镜头拉远时，远处的东西缩小得比近处慢
+  const bgScale = Math.pow(cam.zoom / ZOOM, 0.3);
+  g.save();
+  g.translate(SC[0], SC[1]); g.scale(bgScale, bgScale); g.translate(-SC[0], -SC[1]);
   airship(g, t);
   background(g, shift * 0.45);
   distantBirds(g, t);
+  g.restore();
 
-  const cam = feetAt(sig);
+  const c = feetAt(cam.sig);
   g.save();
   g.translate(SC[0], SC[1]);
-  g.scale(ZOOM, ZOOM);
-  g.translate(-(cam[0] + CAM_OFFSET[0]), -(cam[1] + CAM_OFFSET[1]));
+  g.scale(cam.zoom, cam.zoom);
+  g.translate(-(c[0] + cam.off[0]), -(c[1] + cam.off[1]));
+
+  redField(g, t);
 
   // 地面线
-  const a = feetAt(-400), b = feetAt(FIRST + PEOPLE.length * SPACING + 600);
-  g.strokeStyle = C.ink; g.lineWidth = 2;
+  const a = feetAt(-1200), b = feetAt(FIRST + PEOPLE.length * SPACING + 1600);
+  g.strokeStyle = C.ink; g.lineWidth = 2 / Math.max(cam.zoom / ZOOM, 0.3);
   g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
   bootPrints(g);
 
@@ -594,19 +749,20 @@ export function part1(g, t) {
       s,
       draw: () => {
         const [x, y] = feetAt(s);
+        const e = morphAt(t, s);
         const pose = p.pose(ta);
         pose.headTilt = mix(pose.headTilt || 0, 0.4, look);   // 抬头看天
-        person(g, x, y, p.spec, pose);
+        person(g, x, y, blendSpec(p.spec, e), blendPose(pose, e));
       },
     });
   });
-  GROUND_CROWS.forEach((c) => items.push({ s: c.s, draw: () => groundCrow(g, c, t) }));
+  GROUND_CROWS.forEach((cr) => items.push({ s: cr.s, draw: () => groundCrow(g, cr, t) }));
   items.sort((p, q) => p.s - q.s).forEach((it) => it.draw());
   g.restore();
 
   airshipShadow(g, t);
   windDebris(g, t, shift);
-  foreground(g, t, shift);
+  foreground(g, t, shift, 520 * cam.k);
   grade(g, t);
 
   // 开头两拍从黑色淡入

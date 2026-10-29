@@ -45,6 +45,15 @@ export function shade(hex, amt) {
   return `rgb(${f(n >> 16)},${f((n >> 8) & 255)},${f(n & 255)})`;
 }
 
+// 两个十六进制颜色按 p 混合，返回十六进制
+export function mixColor(a, b, p) {
+  if (p <= 0) return a;
+  if (p >= 1) return b;
+  const x = parseInt(a.slice(1), 16), y = parseInt(b.slice(1), 16);
+  const ch = (s) => Math.round(mix((x >> s) & 255, (y >> s) & 255, p));
+  return '#' + ((1 << 24) | (ch(16) << 16) | (ch(8) << 8) | ch(0)).toString(16).slice(1);
+}
+
 // ---------- 图标 ----------
 const iconCache = {};
 export function iconPath(name) {
@@ -100,12 +109,18 @@ export function pattern(g, key) {
 
 // ---------- 带阴影的衣服 ----------
 // 光从左上方来：衣服右侧（背光面）加一块锯齿边的阴影，阴影里加网点，阴影边缘加两条白色褶线
-export function garment(g, path, color, { pat = null, top = -720, bottom = 0, edge = 14, folds = true } = {}) {
+export function garment(g, path, color, { pat = null, patA = 1, top = -720, bottom = 0, edge = 14, folds = true } = {}) {
   g.fillStyle = color;
   g.fill(path);
   g.save();
   g.clip(path);
-  if (pat) { g.fillStyle = pattern(g, pat); g.fill(path); }
+  if (pat && patA > 0) {
+    const a = g.globalAlpha;
+    g.globalAlpha = a * patA;
+    g.fillStyle = pattern(g, pat);
+    g.fill(path);
+    g.globalAlpha = a;
+  }
   g.beginPath();
   g.moveTo(edge, top - 40);
   let k = 0;

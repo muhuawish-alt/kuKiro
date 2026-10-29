@@ -1,10 +1,11 @@
-// 播放、音频同步和导出。目前只完成第一段（0–16.875 秒）。
+// 播放、音频同步和导出。目前完成前两段（0–26.25 秒）。
 import { W, H } from './draw.js';
-import { part1, PART1_END } from './part1.js';
+import { queue, PART2_END } from './queue.js';
 import { canExport, exportWebM } from './export.js';
 
 const AUDIO_START = 44.18;           // 原曲中的起点
-const PREVIEW_END = PART1_END;       // 现阶段只播放到第一段结束
+const PREVIEW_END = PART2_END;       // 现阶段播放到第二段结束
+const EXPORT_NAME = '鸦_0-26秒.webm';
 const FILE = 'Kam Ridr - the other side of paradise（顶级智斗）_627244913.mp3';
 // 放在仓库里时音频在 ../；在沙盒工作区时在 ../kuKiro/
 const AUDIO_CANDIDATES = ['../' + FILE, '../kuKiro/' + FILE];
@@ -30,7 +31,7 @@ const grain = (() => {
 })();
 
 export function render(t) {
-  part1(ctx, Math.min(t, PART1_END));
+  queue(ctx, Math.min(t, PREVIEW_END));
   ctx.globalAlpha = 0.05;
   ctx.globalCompositeOperation = 'overlay';
   ctx.drawImage(grain, 0, 0);
@@ -123,7 +124,7 @@ document.getElementById('rec').onclick = async () => {
     });
     ui.classList.remove('hidden');
     label.textContent = '导出完成';
-    download(blob, '鸦_第一段.webm');
+    download(blob, EXPORT_NAME);
     return;
   }
   // 浏览器不支持 WebCodecs 时，退回实时录制
@@ -134,7 +135,7 @@ document.getElementById('rec').onclick = async () => {
   recorder = new MediaRecorder(stream, { mimeType: mime, videoBitsPerSecond: 8_000_000 });
   const chunks = [];
   recorder.ondataavailable = (e) => e.data.size && chunks.push(e.data);
-  recorder.onstop = () => download(new Blob(chunks, { type: 'video/webm' }), '鸦_第一段.webm');
+  recorder.onstop = () => download(new Blob(chunks, { type: 'video/webm' }), EXPORT_NAME);
   ui.classList.add('hidden');
   recorder.start();
   await start();

@@ -1,6 +1,6 @@
 // 人物剪影。局部坐标：脚底在 (0, 0)，人物朝左（-x 是前方），成年人身高约 820。
 // spec 是人物的固定外观，pose 是随时间变化的姿势和道具。
-import { C, shade, garment } from './draw.js';
+import { C, shade, garment, mix } from './draw.js';
 
 function limb(g, pts, width, color) {
   g.strokeStyle = color;
@@ -90,19 +90,60 @@ const HATS = {
   },
 };
 
+const dressAmt = (spec) => (spec.dressAmt !== undefined ? spec.dressAmt : spec.dress ? 1 : 0);
+const hemOf = (spec) => (spec.hem !== undefined ? spec.hem : spec.dress ? (spec.dressLen || -170) : -(spec.coatLen || 400));
+
+// 钢盔：圆顶，后沿向下外翻，前沿一道短帽檐
+function helmet(g, hx, hy) {
+  g.fillStyle = C.ink;
+  g.beginPath();
+  g.moveTo(hx - 62, hy - 14);
+  g.quadraticCurveTo(hx - 58, hy - 30, hx - 48, hy - 34);
+  g.quadraticCurveTo(hx - 34, hy - 92, hx + 10, hy - 90);
+  g.quadraticCurveTo(hx + 58, hy - 86, hx + 60, hy - 30);
+  g.quadraticCurveTo(hx + 66, hy - 6, hx + 78, hy + 10);
+  g.lineTo(hx + 46, hy + 4);
+  g.quadraticCurveTo(hx + 20, hy - 22, hx - 30, hy - 18);
+  g.closePath();
+  g.fill();
+  g.strokeStyle = 'rgba(247,241,227,0.45)'; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(hx - 30, hy - 60); g.quadraticCurveTo(hx, hy - 84, hx + 34, hy - 70); g.stroke();
+}
+
+// 步枪：从枪托 (0,0) 沿 -y 方向延伸，grow 0..1 控制长出来的长度
+export function rifle(g, grow = 1) {
+  if (grow <= 0) return;
+  const L = 560 * grow;
+  g.save();
+  g.fillStyle = C.ink;
+  // 枪托和护木
+  g.beginPath();
+  g.moveTo(-16, 0); g.lineTo(16, 0); g.lineTo(10, -Math.min(L, 200)); g.lineTo(-8, -Math.min(L, 200)); g.closePath(); g.fill();
+  if (L > 200) {
+    g.fillRect(-7, -Math.min(L, 400), 13, Math.min(L, 400) - 200);                 // 护木
+    g.fillRect(-4, -L, 7, L - Math.min(L, 400) + 2);                               // 枪管
+    g.fillRect(6, -230, 18, 7);                                                     // 枪栓
+  }
+  if (grow > 0.92) {                                                                 // 刺刀
+    const b = (grow - 0.92) / 0.08;
+    g.fillStyle = C.light;
+    g.beginPath(); g.moveTo(-3, -L); g.lineTo(4, -L); g.lineTo(0.5, -L - 110 * b); g.closePath(); g.fill();
+  }
+  g.strokeStyle = 'rgba(247,241,227,0.4)'; g.lineWidth = 2;
+  g.beginPath(); g.moveTo(-6, -20); g.lineTo(0, -Math.min(L, 190)); g.stroke();
+  g.restore();
+}
+
 function torsoPath(spec, pose, hem) {
   const p = new Path2D();
   const h = spec.hunch || 0;
+  // d：0 是外套（直下摆），1 是裙子（外扩、随风摆）；中间值用于变形
+  const d = dressAmt(spec);
+  const wv = (pose.hemWave || 0) * d;
   p.moveTo(-62 - h * 0.6, -684);
   p.quadraticCurveTo(-86 - h * 0.4, -600, -78, -470);
-  if (spec.dress) {
-    const wv = pose.hemWave || 0;
-    p.lineTo(-128 + 8 * wv, hem);
-    p.quadraticCurveTo(-5, hem + 16 * wv, 118 + 22 * wv, hem - 8 * wv);
-  } else {
-    p.lineTo(-86, hem);
-    p.lineTo(84, hem);
-  }
+  p.lineTo(mix(-86, -128, d) + 8 * wv, hem);
+  p.quadraticCurveTo(-5, hem + 16 * wv, mix(84, 118, d) + 22 * wv, hem - 8 * wv);
   p.lineTo(76, -470);
   p.quadraticCurveTo(82, -620, 56 - h * 0.4, -684);
   p.quadraticCurveTo(-3 - h * 0.5, -716, -62 - h * 0.6, -684);
@@ -126,10 +167,13 @@ export function person(g, x, y, spec, pose) {
   g.beginPath(); g.ellipse(70, -4, 170, 20, 0, 0, Math.PI * 2); g.fill();
   if (pose.ground) pose.ground(g);   // 地上的小物件（石子），不随上半身倾斜
 
-  // 腿
+  // 腿（裙子下露出的细腿，到外套下的粗裤腿，可以连续变化）
+  const d = dressAmt(spec);
   const legColor = spec.legs || C.ink;
-  const legW = spec.dress ? 34 : 50;
-  const legTop = spec.dress ? -330 : -440;
+  const legW = mix(50, 34, d);
+  const legTop = mix(-440, -330, d);
+  const accA = spec.accA !== undefined ? spec.accA : 1;      // 围裙、披肩、围巾、旧帽子的不透明度
+  const helmA = spec.helmet || 0;
   const kick = pose.kick || [0, 0];
   limb(g, [[22, legTop], [26, -20]], legW, shade(legColor, 0.15));
   limb(g, [[-24, legTop], [-26 + kick[0] * 0.4, -230 + kick[1] * 0.4], [-28 + kick[0], -20 + kick[1]]], legW, legColor);
@@ -145,21 +189,26 @@ export function person(g, x, y, spec, pose) {
   const backArm = pose.backArm || [[34, -660], [54, -545], [50, -445]];
   if (!pose.backArmFront) limb(g, backArm, 32, shade(coat, 0.35));
 
-  const hem = spec.dress ? (spec.dressLen || -170) : -(spec.coatLen || 400);
-  garment(g, torsoPath(spec, pose, hem), coat, { pat: spec.pattern, top: -720, bottom: hem });
+  const hem = hemOf(spec);
+  garment(g, torsoPath(spec, pose, hem), coat, { pat: spec.pattern, patA: spec.patA !== undefined ? spec.patA : 1, top: -720, bottom: hem });
 
-  // 白色细节：领口、门襟、纽扣、腰带
+  // 白色细节：领口、门襟、纽扣、腰带（外套的细节随 1-d 出现，裙子的随 d 出现）
+  const a0 = g.globalAlpha;
   g.strokeStyle = 'rgba(247,241,227,0.85)'; g.fillStyle = 'rgba(247,241,227,0.85)';
   g.lineWidth = 3; g.lineCap = 'round';
   g.beginPath(); g.moveTo(-34, -686); g.lineTo(-50, -600); g.lineTo(-10, -660); g.stroke();
-  if (!spec.dress) {
+  if (d < 1) {
+    g.globalAlpha = a0 * (1 - d);
     g.beginPath(); g.moveTo(-58, -600); g.lineTo(-68, hem + 6); g.stroke();
     for (let i = 0; i < 4; i++) { g.beginPath(); g.arc(-46, -590 + i * 48, 4.5, 0, Math.PI * 2); g.fill(); }
     g.beginPath(); g.moveTo(-76, -478); g.lineTo(74, -478); g.stroke();
     g.beginPath(); g.moveTo(-70, -560); g.lineTo(-30, -560); g.stroke();                  // 胸袋
-  } else {
+  }
+  if (d > 0) {
+    g.globalAlpha = a0 * d;
     g.beginPath(); g.moveTo(-76, -470); g.lineTo(72, -470); g.stroke();
   }
+  g.globalAlpha = a0 * accA;
 
   if (spec.apron) {
     const a = new Path2D();
@@ -172,8 +221,14 @@ export function person(g, x, y, spec, pose) {
   // 头（绕脖子转动）
   g.save();
   g.translate(hx, hy + 40); g.rotate(pose.headTilt || 0); g.translate(-hx, -(hy + 40));
+  g.globalAlpha = a0;
   head(g, hx, hy);
-  if (spec.hat) HATS[spec.hat](g, hx, hy, spec.hatColor || C.ink, pose.hairWave || 0);
+  if (spec.hat && helmA < 1) {
+    g.globalAlpha = a0 * (1 - helmA);
+    HATS[spec.hat](g, hx, hy, spec.hatColor || C.ink, pose.hairWave || 0);
+  }
+  if (helmA > 0) { g.globalAlpha = a0 * helmA; helmet(g, hx, hy); }
+  g.globalAlpha = a0 * accA;
   if (spec.shawl) {
     const sh = new Path2D();
     sh.moveTo(hx - 48, hy + 6);
@@ -206,6 +261,7 @@ export function person(g, x, y, spec, pose) {
     g.beginPath(); g.moveTo(-40, -694); g.lineTo(36, -686); g.stroke();
   }
 
+  g.globalAlpha = a0;
   if (pose.backArmFront) limb(g, backArm, 32, shade(coat, 0.2));
   if (pose.prop) pose.prop(g);
 
