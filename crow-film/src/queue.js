@@ -3,10 +3,10 @@
 //   镜头从队尾木桩上的乌鸦开始，匀速沿队列移到队首；前景和背景按不同速度移动，做出景深。
 // 第二段（16.875–26.25 秒）：红色从队首漫向队尾，经过谁，谁就变成同样的士兵；镜头拉远成全景。
 import {
-  W, H, BAR, BEAT, C, lin, smooth, mix, mixColor, wave, pulse, phaseIn, mod, shade,
+  W, H, BAR, BEAT, C, lin, smooth, mix, mixColor, wave, pulse, phaseIn, mod, shade, clamp,
   icon, iconPath, makePaper, flyingCrow, garment,
 } from './draw.js';
-import { person, rifle } from './figures.js';
+import { person, rifle, headOf, drawHat, HAS_HAT } from './figures.js';
 
 export const PART1_END = 16.875;
 
@@ -75,6 +75,50 @@ function perchedCrow(g, x, footY, size, { face = -1, peck = 0, eyeOpen = 1, glin
   g.restore();
 }
 
+// ---------- 铁丝网 ----------
+// 一根带刺的铁丝：两点之间略微下垂，每隔一段拧一个刺
+function barbedWire(g, a, b, sag, lw = 2.5) {
+  g.strokeStyle = C.ink; g.lineWidth = lw; g.lineCap = 'round';
+  const mid = [(a[0] + b[0]) / 2, (a[1] + b[1]) / 2 + sag];
+  g.beginPath(); g.moveTo(a[0], a[1]); g.quadraticCurveTo(mid[0], mid[1], b[0], b[1]); g.stroke();
+  const n = Math.max(2, Math.round(Math.hypot(b[0] - a[0], b[1] - a[1]) / 46));
+  g.lineWidth = lw * 0.8;
+  for (let k = 1; k < n; k++) {
+    const u = k / n, v = 1 - u;
+    const x = v * v * a[0] + 2 * u * v * mid[0] + u * u * b[0], y = v * v * a[1] + 2 * u * v * mid[1] + u * u * b[1];
+    g.beginPath(); g.moveTo(x - 7, y - 8); g.lineTo(x + 7, y + 8); g.moveTo(x + 7, y - 8); g.lineTo(x - 7, y + 8); g.stroke();
+  }
+}
+// 队尾木桩后面的一段铁丝网：两道铁丝通往画面外
+function wireFence(g) {
+  const posts = [0, -560, -1120];
+  posts.slice(1).forEach((s) => {
+    const [x, y] = feetAt(s);
+    g.fillStyle = C.brown; g.fillRect(x - 12, y - 250, 24, 250);
+    g.fillStyle = 'rgba(20,18,16,0.3)'; g.fillRect(x + 2, y - 250, 10, 250);
+  });
+  for (let k = 0; k < posts.length - 1; k++) {
+    const A = feetAt(posts[k]), B = feetAt(posts[k + 1]);
+    for (const h of [120, 220]) barbedWire(g, [A[0], A[1] - h], [B[0], B[1] - h], 22);
+  }
+}
+// 队首附近地上一卷蛇腹形铁丝网（一圈一圈的环，沿地面排开），稍微靠后一点
+function wireCoil(g, s0, s1) {
+  g.strokeStyle = C.ink; g.lineCap = 'round';
+  for (let s = s0; s <= s1; s += 34) {
+    const [x, y] = feetAt(s);
+    const cx = x + 30, cy = y - 92;
+    g.lineWidth = 2.5;
+    g.beginPath(); g.ellipse(cx, cy, 34, 86, -0.35, 0, Math.PI * 2); g.stroke();
+    g.lineWidth = 2;
+    const a = (s * 0.37) % 6.28;
+    for (const d of [0, 2.1, 4.2]) {
+      const px = cx + 34 * Math.cos(a + d) * 0.94 - 86 * Math.sin(a + d) * -0.34, py = cy + 34 * Math.cos(a + d) * -0.34 + 86 * Math.sin(a + d) * 0.94;
+      g.beginPath(); g.moveTo(px - 6, py - 6); g.lineTo(px + 6, py + 6); g.moveTo(px + 6, py - 6); g.lineTo(px - 6, py + 6); g.stroke();
+    }
+  }
+}
+
 // ---------- 队尾：木桩和乌鸦 ----------
 function postAndCrow(g, t) {
   const [x, y] = feetAt(0);
@@ -128,6 +172,92 @@ const note = (g, x, y, a) => {
   g.restore();
 };
 
+// 风筝和风筝线：end 是线的下端（手里，或者断了以后拖在下面），sag 控制线的弧度
+function drawKite(g, k, end, sag) {
+  const ax = k.x - k.size * 0.12, ay = k.y + k.size * 0.22;
+  g.strokeStyle = C.ink; g.lineWidth = 3;
+  g.beginPath(); g.moveTo(end[0], end[1]);
+  g.quadraticCurveTo((end[0] + ax) / 2 + 70, (end[1] + ay) / 2 + 90 - 60 * sag, ax, ay); g.stroke();
+  icon(g, 'kite', k.x, k.y, k.size, k.rot, 1, C.red, 7);
+}
+
+// ---------- 报纸 ----------
+// 对开的两页，中缝在 x=-160。整张报纸是一个平行四边形（左边略高，有一点透视）。
+// 翻页：右页绕中缝转到左边。正面印着右页的内容，背面印着左页的内容，
+// 所以翻完以后和翻之前看起来一样，循环时不会跳。
+const NEWS_O = [-250, -772], NEWS_X = [1, 1 / 6], NEWS_H = 250, PAGE_W = 90, SPINE = -160;
+const PAPER_TONE = '#cfccc1';
+function newsFont(g, size) { g.font = `900 ${size}px Georgia, "Times New Roman", "Noto Serif", "Noto Sans", serif`; }
+// 左页：报头、大标题 WAR、钢盔的照片、正文
+function pageL(g) {
+  g.fillStyle = C.ink;
+  g.fillRect(6, 8, 78, 2.5); g.fillRect(6, 13, 78, 1);
+  newsFont(g, 33); g.textAlign = 'center'; g.textBaseline = 'alphabetic';
+  g.fillText('WAR', 45, 48);
+  g.fillRect(12, 54, 66, 3.5);
+  g.fillStyle = C.warm; g.fillRect(8, 64, 40, 38);
+  g.fillStyle = C.ink;
+  g.beginPath(); g.moveTo(14, 90); g.quadraticCurveTo(28, 82, 42, 90); g.lineTo(42, 92); g.quadraticCurveTo(28, 86, 14, 92); g.fill();
+  g.beginPath(); g.moveTo(19, 87); g.bezierCurveTo(19, 72, 37, 72, 37, 87); g.fill();
+  g.fillStyle = 'rgba(20,18,16,0.5)';
+  for (let k = 0; k < 6; k++) g.fillRect(52, 65 + k * 6.5, 30, 2);
+  for (let k = 0; k < 19; k++) { g.fillRect(8, 110 + k * 7, 36, 2); g.fillRect(48, 110 + k * 7, k === 18 ? 18 : 34, 2); }
+}
+// 右页：一条标题，下面是两栏阵亡名单（每行前面一个小十字）
+function pageR(g) {
+  g.fillStyle = C.ink; g.fillRect(6, 10, 78, 9);
+  g.fillStyle = 'rgba(20,18,16,0.5)'; g.fillRect(14, 24, 62, 2);
+  for (let col = 0; col < 2; col++) {
+    for (let k = 0; k < 24; k++) {
+      const x = 8 + col * 40, y = 36 + k * 8.4;
+      g.fillStyle = 'rgba(20,18,16,0.75)'; g.fillRect(x + 1.2, y - 3, 1.4, 6); g.fillRect(x, y - 1.6, 3.8, 1.4);
+      g.fillStyle = 'rgba(20,18,16,0.5)'; g.fillRect(x + 6, y - 1, 16 + ((k * 7 + col * 3) % 11), 2);
+    }
+  }
+}
+// 在页面坐标（宽 90、高 250）里画东西：o 是左上角，ax 是一个单位宽度对应的向量
+function inPage(g, o, ax, fn) {
+  g.save(); g.transform(ax[0], ax[1], 0, 1, o[0], o[1]); fn(g); g.restore();
+}
+function newsSpread(g, th) {
+  const o = NEWS_O, X = NEWS_X;
+  const corner = (u, v) => [o[0] + X[0] * u, o[1] + X[1] * u + v];
+  const sheet = new Path2D();
+  [[0, 0], [180, 0], [180, NEWS_H], [0, NEWS_H]].forEach(([u, v], k) => { const p = corner(u, v); k ? sheet.lineTo(p[0], p[1]) : sheet.moveTo(p[0], p[1]); });
+  sheet.closePath();
+  g.fillStyle = PAPER_TONE; g.fill(sheet);
+  inPage(g, corner(0, 0), X, pageL);
+  inPage(g, corner(90, 0), X, pageR);
+  // 中缝的阴影
+  const s0 = corner(90, 0), s1 = corner(90, NEWS_H);
+  const crease = g.createLinearGradient(s0[0] - 10, 0, s0[0] + 10, 0);
+  crease.addColorStop(0, 'rgba(20,18,16,0)'); crease.addColorStop(0.5, 'rgba(20,18,16,0.22)'); crease.addColorStop(1, 'rgba(20,18,16,0)');
+  g.fillStyle = crease; g.fillRect(s0[0] - 10, s0[1], 20, s1[1] - s0[1]);
+  if (th <= 0.001 || th >= Math.PI - 0.001) return;
+  // 正在翻的那一页：绕中缝转，转到侧面时会往观众这边抬起一点，纸边微微弯
+  const c = Math.cos(th), s = Math.sin(th);
+  const ax = [PAGE_W * c, PAGE_W * X[1] * c - 26 * s];
+  const ot = [s0[0] + ax[0], s0[1] + ax[1]], ob = [ot[0], ot[1] + NEWS_H];
+  const bow = 9 * s;
+  const page = new Path2D();
+  page.moveTo(s0[0], s0[1]);
+  page.quadraticCurveTo((s0[0] + ot[0]) / 2, (s0[1] + ot[1]) / 2 - bow, ot[0], ot[1]);
+  page.quadraticCurveTo(ot[0] + 6 * s * Math.sign(c || 1), ot[1] + NEWS_H / 2, ob[0], ob[1]);
+  page.quadraticCurveTo((s1[0] + ob[0]) / 2, (s1[1] + ob[1]) / 2 - bow, s1[0], s1[1]);
+  page.closePath();
+  // 它投在下面那页上的影子
+  g.save(); g.translate(5 * s, 8 * s); g.fillStyle = `rgba(20,18,16,${0.2 * s})`; g.fill(page); g.restore();
+  g.fillStyle = PAPER_TONE; g.fill(page);
+  g.save();
+  g.clip(page);
+  if (c >= 0) inPage(g, s0, [ax[0] / PAGE_W, ax[1] / PAGE_W], pageR);
+  else inPage(g, ot, [-ax[0] / PAGE_W, -ax[1] / PAGE_W], pageL);
+  g.fillStyle = `rgba(20,18,16,${0.32 * (1 - Math.abs(c)) + (c < 0 ? 0.05 : 0)})`;   // 转到侧面时变暗
+  g.fill(page);
+  g.restore();
+  g.strokeStyle = 'rgba(20,18,16,0.3)'; g.lineWidth = 1.5; g.stroke(page);
+}
+
 const PEOPLE = [
   {
     name: '放风筝的女孩',
@@ -136,20 +266,15 @@ const PEOPLE = [
       const pull = pulse(t, BAR, 0, 0.9);
       const wind = wave(t, BAR * 1.5);
       const hand = [118, -880 + 60 * pull];
+      // 风筝在女孩右上方、乌鸦的上方，风筝线从乌鸦头顶上越过
+      const kite = { x: 650 + 40 * wave(t, 3.75), y: -1600 - 40 * pull + 20 * wave(t, 2.5), size: 400, rot: 0.12 + 0.08 * wave(t, 3.75), hand, pull };
       return {
         headTilt: 0.22, hairWave: wind, hemWave: wind,
         backArm: [[34, -650], [80, -770], hand],
         arm: [[-24, -660], [-46, -560], [-30, -500]],
-        behind(g) {
-          // 风筝在女孩右上方、乌鸦的上方，风筝线从乌鸦头顶上越过
-          const kx = 650 + 40 * wave(t, 3.75), ky = -1600 - 40 * pull + 20 * wave(t, 2.5);
-          const size = 400;
-          const ax = kx - size * 0.12, ay = ky + size * 0.22;
-          g.strokeStyle = C.ink; g.lineWidth = 3;
-          g.beginPath(); g.moveTo(hand[0], hand[1]);
-          g.quadraticCurveTo((hand[0] + ax) / 2 + 70, (hand[1] + ay) / 2 + 90 - 60 * pull, ax, ay); g.stroke();
-          icon(g, 'kite', kx, ky, size, 0.12 + 0.08 * wave(t, 3.75), 1, C.red, 7);
-        },
+        kite,
+        held: { kite: true },
+        behind(g) { drawKite(g, kite, hand, pull); },
       };
     },
   },
@@ -162,6 +287,7 @@ const PEOPLE = [
       return {
         kick: [-80 * kick, -50 * kick], lean: 0.035 * kick,
         arm: [[-24, -660], [-34 - 24 * kick, -545], [-40 - 34 * kick, -445 + 12 * kick]],
+        held: { keys: ['behind'], at: [66, -560] },
         behind(g) { icon(g, 'backpack', 66, -560, 220, 0, 1, C.green, 6); },
         ground(g) {
           let x = -70, y = -12, a = 1;
@@ -191,8 +317,9 @@ const PEOPLE = [
         backArmFront: true,
         backArm: [[34, -660], [44, -560], [-20, -545]],
         arm: [[-24, -660], [-72, -585], hand],
+        held: { keys: ['prop'], at: [-40, -548] },
         prop(g) { icon(g, 'bread', -40, -548, 290, 0.62, 1, C.mustard, 6); },
-        over(g) {
+        fx(g) {
           const a = smooth(ph, 0.15, 0.35) * (1 - smooth(ph, 1.0, 1.3));
           if (a > 0) {
             g.globalAlpha = a; g.fillStyle = C.mustard;
@@ -216,39 +343,20 @@ const PEOPLE = [
     name: '看报纸的男人',
     spec: { scale: 1.02, coat: C.char, pattern: 'pinstripe', coatLen: 330, hat: 'fedora', hatColor: C.warm, legs: C.char },
     pose(t) {
-      const ph = phaseIn(t, 2 * BAR, BAR * 1.5);
-      const ang = Math.PI * smooth(ph, 0, 0.9);
-      const pageA = 1 - smooth(ph, 0.85, 1.15);
+      // 每两小节翻一页：右手捏住右页的边，用大约一拍半把它翻到左边（第 8.5 秒那一次正好在画面中间）
+      const ph = phaseIn(t, 2 * BAR, BAR * 0.5);
+      const th = Math.PI * smooth(ph, 0.1, 0.8);
+      const reach = smooth(ph, 0, 0.12) * (1 - smooth(ph, 0.8, 1.05));     // 翻页时右手跟着页边走
+      const turnHand = [-70 - 2 * PAGE_W * (1 - Math.cos(th)) / 2, -575 - 30 * Math.sin(th)];
+      const rest = [-78, -575];
+      const hand = [mix(rest[0], turnHand[0], reach), mix(rest[1], turnHand[1], reach)];
       return {
         headTilt: -0.12,
         backArmFront: true,
-        backArm: [[34, -660], [-10, -590], [-78, -575]],
+        backArm: [[34, -660], [mix(-10, -60, reach), mix(-590, -610, reach)], hand],
         arm: [[-24, -660], [-130, -610], [-238, -628]],
-        prop(g) {
-          // 报纸：浅灰底、黑色标题、灰色文字行、一张小图
-          g.fillStyle = C.light;
-          g.beginPath(); g.moveTo(-250, -772); g.lineTo(-70, -742); g.lineTo(-70, -500); g.lineTo(-250, -522); g.closePath(); g.fill();
-          // 头条是两道粗黑条，配图是一顶钢盔：战争已经上了报纸
-          g.fillStyle = C.ink; g.beginPath(); g.moveTo(-238, -752); g.lineTo(-84, -727); g.lineTo(-84, -705); g.lineTo(-238, -730); g.fill();
-          g.beginPath(); g.moveTo(-238, -724); g.lineTo(-120, -705); g.lineTo(-120, -694); g.lineTo(-238, -712); g.fill();
-          g.fillStyle = C.warm; g.fillRect(-232, -700, 60, 52);
-          g.fillStyle = C.ink;
-          g.beginPath(); g.arc(-202, -660, 18, Math.PI, 0); g.fill(); g.fillRect(-224, -662, 44, 5);
-          g.strokeStyle = C.warm; g.lineWidth = 3;
-          for (let i = 0; i < 7; i++) {
-            const y = -690 + i * 22;
-            g.beginPath(); g.moveTo(i < 3 ? -164 : -236, y + (i < 3 ? 4 : 10)); g.lineTo(-86, y + 26); g.stroke();
-          }
-          if (ph < 1.15) {                               // 翻页：页面绕书脊转过去
-            const c = Math.cos(ang), lift = -24 * Math.sin(ang);
-            const ex = -70 - 180 * c;
-            g.globalAlpha = pageA;
-            g.fillStyle = shade('#e3dccd', 0.25 * (1 - Math.abs(c)));
-            g.beginPath(); g.moveTo(-70, -742); g.lineTo(ex, -772 + lift); g.lineTo(ex, -522 + lift); g.lineTo(-70, -500); g.closePath(); g.fill();
-            g.strokeStyle = 'rgba(20,18,16,0.35)'; g.lineWidth = 2; g.stroke();
-            g.globalAlpha = 1;
-          }
-        },
+        held: { keys: ['prop'], at: [-160, -647] },
+        prop(g) { newsSpread(g, th); },
       };
     },
   },
@@ -267,6 +375,7 @@ const PEOPLE = [
         backArmFront: true,
         backArm: [[34, -660], [100, -600], frog],
         arm: [[-24, -660], [-110, -690], [-180, -735]],
+        held: { keys: ['prop'], at: [-40, -690] },
         prop(g) {
           // 琴架在肩上，琴颈朝左前方伸出，左手握住琴颈末端
           icon(g, 'violin', -40, -690, 250, -0.5, -1, C.brown, 6);
@@ -278,7 +387,7 @@ const PEOPLE = [
           g.strokeStyle = C.light; g.lineWidth = 2;
           g.beginPath(); g.moveTo(a[0] + 5, a[1] - 8); g.lineTo(b[0] + 5, b[1] - 8); g.stroke();
         },
-        over(g) {                                        // 飘出的音符
+        fx(g) {                                          // 飘出的音符
           for (const off of [0, BAR / 2]) {
             const p = phaseIn(t, BAR, off) / 1.7;
             if (p < 1) note(g, 60 + 120 * p, -900 - 280 * p, smooth(p, 0, 0.12) * (1 - smooth(p, 0.6, 1)));
@@ -322,6 +431,7 @@ const PEOPLE = [
         headTilt: 0.12 * gust,
         backArm: down.map((p, i) => [mix(p[0], up[i][0], gust), mix(p[1], up[i][1], gust)]),
         arm: [[-30, -660], [-72, -720], hand],
+        held: { keys: ['over'], at: [hand[0], hand[1] - 150] },
         over(g) {
           g.save(); g.translate(hand[0], hand[1]); g.rotate(sway);
           icon(g, 'umbrella', 0, -150, 450, 0, 1, C.green);
@@ -341,12 +451,15 @@ const PEOPLE = [
       return {
         headTilt: -0.22 * smell, hairWave: wave(t, BAR * 1.5, 0.3), hemWave: wave(t, BAR, 0.5),
         arm: [[-24, -660], [-66, -570 - 30 * smell], hand],
+        held: { keys: ['over'], at: [F[0], F[1] + 70] },
         over(g) {
           g.strokeStyle = C.green; g.lineWidth = 8;
           g.beginPath(); g.moveTo(hand[0], hand[1] + 14); g.quadraticCurveTo(hand[0] - 24, (hand[1] + F[1]) / 2, F[0], F[1]); g.stroke();
           g.fillStyle = C.green; g.beginPath(); g.ellipse(hand[0] - 26, hand[1] - 70, 26, 10, -0.7, 0, Math.PI * 2); g.fill();
           g.fillStyle = C.brown; g.beginPath(); g.arc(F[0], F[1], 34, 0, Math.PI * 2); g.fill();
           icon(g, 'sunflower', F[0], F[1], 210, 0.1 * sway, 1, C.mustard);
+        },
+        fx(g) {
           for (const off of [0, 0.9]) {                   // 被风吹落的花瓣
             const p = phaseIn(t, BAR, off) / 1.8;
             if (p < 1) {
@@ -365,8 +478,20 @@ const PEOPLE = [
 // ---------- 背景：远处一列浅灰的小人（速度是主镜头的 0.45 倍） ----------
 // morph(x, y) 返回屏幕位置 (x, y) 处小人变成士兵的进度 0..1（红色经过后开始变）
 // life 只在第三段使用：{ t, march(t) }。小人跟着队伍走，到时间就消失，原地留下原来样子的影子
-function background(g, shift, morph = () => 0, life = null) {
+// 远处小人的影子：和近处的人一样，投在右后方，而且永远是原来的样子
+const BG_SH = [14, -2], BG_SKEW = 0.2;
+function bgShadow(g, x, y, k, i, alpha, color = '#000', mode = 'multiply') {
+  if (alpha <= 0) return;
+  g.save();
+  g.globalAlpha = alpha; g.globalCompositeOperation = mode; g.fillStyle = color;
+  g.transform(1, 0, -BG_SKEW, 1, x + BG_SH[0] + BG_SKEW * y, BG_SH[1]);
+  g.fill(bgPath(0, y, k, 0, i));
+  g.restore();
+}
+
+function background(g, shift, morph = () => 0, life = null, t = 0) {
   const ax = 760, ay = 1180;
+  smoke(g, t, shift);
   for (let i = -12; i < 40; i++) {
     let x = ax + DIR[0] * i * 150 + SCREEN_DIR[0] * shift;
     let y = ay + DIR[1] * i * 150 + SCREEN_DIR[1] * shift;
@@ -376,16 +501,32 @@ function background(g, shift, morph = () => 0, life = null) {
       const m = life.march(Math.min(life.t, vt));
       x += DIR[0] * m; y += DIR[1] * m;
       if (x < -60 || x > W + 60) continue;
-      const alive = 1 - smooth(life.t, vt, vt + 0.4);
-      const sh = smooth(life.t, vt + 0.1, vt + 0.6);
-      if (sh > 0) { g.globalAlpha = 0.9 * sh; bgFigure(g, x + 6, y - 2, k, 0, i, '#4d4a4a'); }
-      if (alive > 0) { g.globalAlpha = alive; bgFigure(g, x, y, k, 1, i, C.warm); }
-      g.globalAlpha = 1;
+      const sh = smooth(life.t, vt + 0.1, vt + 0.6);               // 消失后影子烙在地上
+      if (life.t > vt + 0.3) {                                     // 脚下渗出的一小摊血
+        const r = 26 * (1 - Math.exp(-(life.t - vt - 0.3) / 1.8));
+        g.save(); g.globalCompositeOperation = 'multiply'; g.fillStyle = 'rgba(80,8,18,0.5)';
+        g.beginPath(); g.ellipse(x + 6, y + 1, r * (1 + 0.3 * hash(i)), r * 0.3, 0, 0, Math.PI * 2); g.fill();
+        g.restore();
+      }
+      bgShadow(g, x, y, k, i, 0.3 * (1 - sh));
+      bgShadow(g, x, y, k, i, 0.9 * sh, '#4d4a4a', 'source-over');
+      if (life.t < vt + 0.45) {                                    // 从头到脚化掉
+        const cut = y - 150 * (1 - lin(life.t, vt, vt + 0.45));
+        g.save(); g.beginPath(); g.rect(x - 40, cut, 80, y - cut + 10); g.clip();
+        bgFigure(g, x, y, k, 1, i, C.warm);
+        g.restore();
+      }
       continue;
     }
     if (x < -60 || x > W + 60) continue;
+    bgShadow(g, x, y, k, i, 0.3);
     const e = morph(x, y);
-    bgFigure(g, x, y, k, e, i, mixColor(C.light, C.warm, e));
+    if (e <= 0) { bgFigure(g, x, y, k, 0, i, C.light); continue; }
+    if (e >= 1) { bgFigure(g, x, y, k, 1, i, C.warm); continue; }
+    // 红色经过时，从脚往上一点点变成士兵
+    const cut = y + 4 - 175 * e;
+    g.save(); g.beginPath(); g.rect(x - 40, cut, 80, 200); g.clip(); bgFigure(g, x, y, k, 1, i, C.warm); g.restore();
+    g.save(); g.beginPath(); g.rect(x - 40, cut - 300, 80, 300); g.clip(); bgFigure(g, x, y, k, 0, i, C.light); g.restore();
   }
   g.strokeStyle = C.light; g.lineWidth = 2;
   const l0 = [ax + DIR[0] * -12 * 150 + SCREEN_DIR[0] * shift, ay + DIR[1] * -12 * 150 + SCREEN_DIR[1] * shift];
@@ -393,30 +534,57 @@ function background(g, shift, morph = () => 0, life = null) {
   g.beginPath(); g.moveTo(l0[0], l0[1]); g.lineTo(l1[0], l1[1]); g.stroke();
 }
 
-// 远处的一个小人：e=0 是普通人，e=1 是士兵（同样的高度，大衣变长，钢盔，斜扛步枪）
+// 远处的一个小人（一个路径，填一次，叠加的地方不会更深）：e=0 是普通人，e=1 是士兵（碟形钢盔，斜扛步枪）
+function bgPath(x, y, k, e, i) {
+  const kk = e ? 1 : k;
+  const p = new Path2D();
+  p.rect(x - 9 * kk, y - 46 * kk, 7 * kk, 46 * kk);
+  p.rect(x + 2 * kk, y - 46 * kk, 7 * kk, 46 * kk);
+  const hemY = y - (e ? 26 : 40) * kk, hw = (e ? 18 : 16) * kk;
+  p.moveTo(x - hw, hemY); p.lineTo(x - 12 * kk, y - 104 * kk); p.quadraticCurveTo(x, y - 112 * kk, x + 12 * kk, y - 104 * kk);
+  p.lineTo(x + hw, hemY); p.closePath();
+  p.moveTo(x - 1 * kk + 11 * kk, y - 122 * kk); p.arc(x - 1 * kk, y - 122 * kk, 11 * kk, 0, Math.PI * 2);
+  if (!e && i % 3 === 0) { p.rect(x - 16 * k, y - 132 * k, 30 * k, 4 * k); p.rect(x - 10 * k, y - 144 * k, 18 * k, 12 * k); }
+  if (e) {
+    p.moveTo(x - 22, y - 128); p.quadraticCurveTo(x, y - 136, x + 22, y - 128); p.lineTo(x + 22, y - 125); p.quadraticCurveTo(x, y - 131, x - 22, y - 125); p.closePath();
+    p.moveTo(x - 12, y - 130); p.bezierCurveTo(x - 12, y - 146, x + 12, y - 146, x + 12, y - 130); p.closePath();
+    // 步枪：细长的四边形
+    const bx = x - 6, by = y - 70, tx = bx + 44 * 0.27, ty = by - 150;
+    p.moveTo(bx - 1.5, by); p.lineTo(tx - 1.5, ty); p.lineTo(tx + 1.5, ty); p.lineTo(bx + 1.5, by); p.closePath();
+  }
+  return p;
+}
 function bgFigure(g, x, y, k, e, i, color) {
-  const a0 = g.globalAlpha;
-  const kk = mix(k, 1, e);
   g.fillStyle = color;
-  g.fillRect(x - 9 * kk, y - 46 * kk, 7 * kk, 46 * kk);
-  g.fillRect(x + 2 * kk, y - 46 * kk, 7 * kk, 46 * kk);
-  const hemY = y - mix(40, 26, e) * kk;
-  g.beginPath();
-  g.moveTo(x - mix(16, 18, e) * kk, hemY); g.lineTo(x - 12 * kk, y - 104 * kk); g.quadraticCurveTo(x, y - 112 * kk, x + 12 * kk, y - 104 * kk);
-  g.lineTo(x + mix(16, 18, e) * kk, hemY); g.closePath(); g.fill();
-  g.beginPath(); g.arc(x - 1 * kk, y - 122 * kk, 11 * kk, 0, Math.PI * 2); g.fill();
-  if (i % 3 === 0 && e < 1) {                  // 原来的帽子淡出
-    g.globalAlpha = a0 * (1 - e);
-    g.fillRect(x - 16 * k, y - 132 * k, 30 * k, 4 * k); g.fillRect(x - 10 * k, y - 144 * k, 18 * k, 12 * k);
+  g.fill(bgPath(x, y, k, e, i));
+}
+
+// 地平线后面升起的几股烟：前线的炮火在很远的地方，烟慢慢往上、往右飘
+const SMOKE = [{ x: 220, t0: 5.0 }, { x: 1150, t0: 8.0 }, { x: 1900, t0: 10.5 }, { x: 2700, t0: 3.0 }];
+// 一团烟：边缘柔和的圆（预先画好，避免每帧做模糊）
+const PUFF = (() => {
+  const c = document.createElement('canvas');
+  c.width = c.height = 128;
+  const o = c.getContext('2d');
+  const grd = o.createRadialGradient(64, 64, 0, 64, 64, 64);
+  grd.addColorStop(0, 'rgba(95,99,102,1)'); grd.addColorStop(0.55, 'rgba(95,99,102,0.7)'); grd.addColorStop(1, 'rgba(95,99,102,0)');
+  o.fillStyle = grd; o.fillRect(0, 0, 128, 128);
+  return c;
+})();
+function smoke(g, t, shift) {
+  g.save();
+  for (const s of SMOKE) {
+    const a = smooth(t, s.t0, s.t0 + 3);
+    if (a <= 0) continue;
+    const bx = mod(s.x + SCREEN_DIR[0] * shift * 0.6, W + 900) - 450, by = 1040 + SCREEN_DIR[1] * shift * 0.6 * 0.2;
+    for (let k = 0; k < 9; k++) {
+      const age = mod(t * 0.22 + k / 9, 1);                 // 每团烟从底部升起，越升越大越淡
+      const r = 34 + 100 * age;
+      g.globalAlpha = a * 0.2 * Math.sin(Math.PI * age);
+      g.drawImage(PUFF, bx + 120 * age * age + 12 * Math.sin(k * 2.1 + t * 0.5) - r, by - 40 - 420 * age - r, 2 * r, 2 * r);
+    }
   }
-  if (e > 0) {
-    g.globalAlpha = a0 * e;
-    g.beginPath(); g.arc(x, y - 126 * kk, 15 * kk, Math.PI, 0); g.fill();                     // 钢盔
-    g.beginPath(); g.moveTo(x - 17 * kk, y - 124 * kk); g.lineTo(x + 20 * kk, y - 122 * kk); g.lineTo(x + 22 * kk, y - 116 * kk); g.lineTo(x - 15 * kk, y - 120 * kk); g.fill();
-    g.strokeStyle = color; g.lineWidth = 3 * kk; g.lineCap = 'round';                         // 步枪
-    g.beginPath(); g.moveTo(x - 6 * kk, y - 70 * kk); g.lineTo(x - 6 * kk + 44 * e * kk * 0.27, y - 70 * kk - 150 * e * kk); g.stroke();
-  }
-  g.globalAlpha = a0;
+  g.restore();
 }
 
 // 远处的鸟群：越来越多，新加入的鸟慢慢浮现
@@ -457,11 +625,17 @@ function airship(g, t) {
   g.beginPath(); g.moveTo(x + 210, y + 46); g.lineTo(x + 250, y + 104); g.lineTo(x + 318, y + 104); g.lineTo(x + 322, y + 14); g.closePath(); g.fill();
   g.fillStyle = '#4a4f53';
   g.fillRect(x + 230, y - 6, 110, 12);
-  // 吊舱和吊索
+  // 吊舱和吊索：前面是指挥舱，后面是发动机舱，螺旋桨在转
   g.fillStyle = '#4a4f53';
   g.beginPath(); g.roundRect(x - 120, y + 82, 150, 30, 8); g.fill();
+  g.beginPath(); g.roundRect(x + 110, y + 74, 80, 24, 8); g.fill();
   g.strokeStyle = '#4a4f53'; g.lineWidth = 2;
-  g.beginPath(); g.moveTo(x - 110, y + 84); g.lineTo(x - 90, y + 70); g.moveTo(x + 20, y + 84); g.lineTo(x, y + 72); g.stroke();
+  g.beginPath(); g.moveTo(x - 110, y + 84); g.lineTo(x - 90, y + 70); g.moveTo(x + 20, y + 84); g.lineTo(x, y + 72);
+  g.moveTo(x + 120, y + 76); g.lineTo(x + 130, y + 66); g.moveTo(x + 180, y + 76); g.lineTo(x + 170, y + 64); g.stroke();
+  const spin = Math.abs(Math.sin(t * 19));
+  g.fillStyle = 'rgba(74,79,83,0.8)';
+  g.beginPath(); g.ellipse(x + 196, y + 86, 3, 4 + 22 * spin, 0, 0, Math.PI * 2); g.fill();
+  g.beginPath(); g.ellipse(x + 36, y + 97, 3, 4 + 18 * Math.abs(Math.sin(t * 19 + 1)), 0, 0, Math.PI * 2); g.fill();
   // 蒙皮的骨架线
   g.strokeStyle = 'rgba(220,219,211,0.3)'; g.lineWidth = 2;
   for (let i = -3; i <= 3; i++) { g.beginPath(); g.ellipse(x + i * 72, y, 12, 72 - Math.abs(i) * 5, 0, -Math.PI / 2, Math.PI / 2); g.stroke(); }
@@ -635,15 +809,17 @@ function camera(t) {
 const WAVE_S0 = 4300, WAVE_S1 = -1400, WAVE_T1 = PART1_END + 4.5 * BAR;
 const waveS = (t) => mix(WAVE_S0, WAVE_S1, lin(t, PART1_END, WAVE_T1));
 const redAmt = (t) => smooth(t, PART1_END, PART1_END + 4);
-const MORPH_TIME = 1.2;                             // 一个人变成士兵用时
-// 第 i 个人（队列位置 s）被红色经过后的变形进度 0..1
-function morphAt(t, s) {
-  if (t <= PART1_END) return 0;
-  const tPass = PART1_END + ((WAVE_S0 - s) / (WAVE_S0 - WAVE_S1)) * (WAVE_T1 - PART1_END);
-  return smooth(t, tPass, tPass + MORPH_TIME);
-}
+// 红色到达第 i 个人脚下的时间
+const tPassOf = (s) => PART1_END + ((WAVE_S0 - s) / (WAVE_S0 - WAVE_S1)) * (WAVE_T1 - PART1_END);
+const T_PASS = PEOPLE.map((p, i) => tPassOf(FIRST + i * SPACING));
 
-// 士兵：同样的身高、同样的军大衣、钢盔、肩扛步枪、一动不动
+// 变成士兵的过程（每人 1.6 秒）：
+//   红色到脚下，人一下僵住，手里的东西松开掉在地上（风筝飞走），帽子随后掉落；
+//   军装从脚往上一截一截长上来，经过的地方就变成士兵；身体同时长到士兵的个子，手臂换成扛枪的姿势。
+// 两个延迟都小于 0.15*MT：东西离手时姿势还没开始变，交接的那一帧位置完全一致
+const MT = 1.6, DROP_DELAY = 0.18, HAT_DELAY = 0.23;
+
+// 士兵：同样的身高、同样的军大衣、碟形钢盔、绑腿和装具、肩扛步枪、一动不动
 const SOLDIER = { scale: 1.0, coat: '#1c1d1f', legs: C.ink, hem: -300, hunch: 0 };
 const RIFLE_BUTT = [-50, -520], RIFLE_ANGLE = 0.27;          // 枪托在胸前，枪管斜靠在肩上
 function soldierPose(e) {
@@ -662,7 +838,6 @@ function soldierPose(e) {
 }
 
 const lerpPts = (a, b, e) => a.map((p, i) => [mix(p[0], b[i][0], e), mix(p[1], b[i][1], e)]);
-const faded = (fn, a) => fn && a > 0 ? (g) => { const a0 = g.globalAlpha; g.globalAlpha = a0 * a; fn(g); g.globalAlpha = a0; } : null;
 
 // 把普通人的外观和姿势，按 e 混合成士兵
 function blendSpec(spec, e) {
@@ -680,28 +855,143 @@ function blendSpec(spec, e) {
     patA: 1 - e,
     accA: 1 - e,
     helmet: e,
+    gear: e,
   };
 }
-function blendPose(a, e) {
-  if (e <= 0) return a;
-  const b = soldierPose(e);
+
+// 变形过程中两层共用的姿势：手臂、头、身体都从普通人的姿势平滑过渡到士兵的姿势（不带道具）
+function morphBase(a, e) {
+  const b = soldierPose(1);
   const arm0 = a.arm || [[-24, -660], [-40, -545], [-44, -440]];
   const back0 = a.backArm || [[34, -660], [54, -545], [50, -445]];
   const k0 = a.kick || [0, 0];
   return {
-    headTilt: mix(a.headTilt || 0, 0, e),
-    lean: mix(a.lean || 0, 0, e),
+    headTilt: mix(a.headTilt || 0, 0, e), lean: mix(a.lean || 0, 0, e),
     kick: [mix(k0[0], 0, e), mix(k0[1], 0, e)],
-    hemWave: mix(a.hemWave || 0, 0, e),
-    hairWave: mix(a.hairWave || 0, 0, e),
-    arm: lerpPts(arm0, b.arm, e),
-    backArm: lerpPts(back0, b.backArm, e),
+    hemWave: mix(a.hemWave || 0, 0, e), hairWave: mix(a.hairWave || 0, 0, e),
+    arm: lerpPts(arm0, b.arm, e), backArm: lerpPts(back0, b.backArm, e),
     backArmFront: e < 0.5 ? a.backArmFront : false,
-    ground: faded(a.ground, 1 - e),
-    behind: faded(a.behind, 1 - e),
-    prop: (g) => { const f = faded(a.prop, 1 - e); if (f) f(g); b.prop(g); },
-    over: faded(a.over, 1 - e),
   };
+}
+
+// 前倾的变换：上半身绕髋部 (0,-440) 转 lean
+const leanMatrix = (lean) => new DOMMatrix().translate(0, -440).rotate((lean || 0) * 180 / Math.PI).translate(0, 440);
+const apply = (m, p) => { const q = m.transformPoint(new DOMPoint(p[0], p[1])); return [q.x, q.y]; };
+
+// 掉落：从手里的位置自由落体到地上，同时转到平躺的角度，落地前在竖直方向压扁（看起来是平躺在地面上）
+// land：dx 水平漂移、rot 最后的转角、squash 平躺时的压扁、restY 落地后中心的高度、flutter 纸张飘落
+const LAND = [
+  null,                                                              // 女孩：风筝单独处理
+  { dx: 170, rot: 1.45, squash: 0.62, restY: -46 },                  // 书包
+  { dx: -170, rot: -0.62, squash: 0.62, restY: -40 },                // 面包
+  { dx: -150, rot: -1.5, squash: 0.36, restY: -32, flutter: true },  // 报纸
+  { dx: -160, rot: 0.62, squash: 0.55, restY: -40 },                 // 小提琴
+  null,                                                              // 母亲：怀里的孩子不会掉，被军装盖过去，变成那支枪
+  { dx: 260, rot: 1.8, squash: 0.6, restY: -70 },                    // 伞，被风往后吹
+  { dx: -190, rot: -1.4, squash: 0.62, restY: -46 },                 // 向日葵
+];
+const HAT_LAND = { dx: 120, rot: 0.55, squash: 0.72, restY: -22 };
+function fall(t, t0, A, land) {
+  const tau = Math.max(0, t - t0);
+  const G = land.flutter ? 1500 : 4700;
+  const h = Math.max(land.restY - A[1], 1);
+  const T = Math.sqrt((2 * h) / G);
+  const u = clamp(tau / T);
+  const y = tau < T ? A[1] + 0.5 * G * tau * tau : land.restY;
+  let x = A[0] + land.dx * (1 - (1 - u) * (1 - u));
+  let rot = land.rot * (u * u * (3 - 2 * u));
+  if (land.flutter) { x += 46 * Math.sin(u * 6.5) * (1 - u); rot += 0.35 * Math.sin(u * 8) * (1 - u); }
+  const bounce = tau > T ? 10 * Math.exp(-(tau - T) * 14) * Math.abs(Math.sin((tau - T) * 22)) : 0;
+  return { x, y: y - bounce, rot, sq: mix(1, land.squash, smooth(u, 0.5, 1)) };
+}
+// 在人物局部坐标里画一件掉落的东西：m0 是它原来在身上时的变换，A 是它原来的中心
+function drawFalling(g, f, A, m0, draw) {
+  g.save();
+  g.translate(f.x, f.y); g.scale(1, f.sq); g.rotate(f.rot); g.translate(-A[0], -A[1]);
+  g.transform(m0.a, m0.b, m0.c, m0.d, m0.e, m0.f);
+  draw(g);
+  g.restore();
+}
+
+// 变成士兵以后留在原地的东西（掉落的道具、帽子、飞走的风筝、地上的石子），画在世界坐标里
+// 返回可以放进前后排序列表的条目
+function droppedItems(g, t) {
+  const out = [];
+  PEOPLE.forEach((p, i) => {
+    const tp = T_PASS[i];
+    if (t < tp) return;
+    const s = FIRST + i * SPACING, [fx, fy] = feetAt(s), sc = p.spec.scale;
+    const pose = p.pose(actionTime(tp));
+    const m0 = leanMatrix(pose.lean);
+    const local = (fn) => () => { g.save(); g.translate(fx, fy); g.scale(sc, sc); fn(); g.restore(); };
+    const held = t >= tp + DROP_DELAY ? (pose.held || {}) : {};
+    if (held.kite) {                                              // 风筝线松开，风筝被风带走，线拖在下面
+      const tau = t - tp - DROP_DELAY;
+      if (tau < 14) {
+        out.push({ s: s - 1, draw: local(() => {
+          const k0 = pose.kite;
+          const k = { ...k0, x: k0.x + 250 * tau + 40 * Math.sin(tau * 1.3), y: k0.y - 150 * tau - 30 * Math.sin(tau * 0.9), rot: k0.rot + 0.22 * tau + 0.1 * Math.sin(tau * 2) };
+          const tail = [k.x - 170 + 50 * Math.sin(tau * 2.3), k.y + 560 + 30 * Math.sin(tau * 1.7)];
+          const e = smooth(tau, 0, 1.1);
+          drawKite(g, k, [mix(k0.hand[0], tail[0], e), mix(k0.hand[1], tail[1], e)], 0.3 + 0.3 * Math.sin(tau * 3));
+        }) });
+      }
+    } else if (held.keys) {
+      const A = apply(m0, held.at);
+      const f = fall(t, tp + DROP_DELAY, A, LAND[i]);
+      const behind = held.keys[0] === 'behind';
+      out.push({ s: s + (behind ? -1 : 1), draw: local(() => drawFalling(g, f, A, m0, (o) => held.keys.forEach((key) => pose[key](o, pose)))) });
+    }
+    if (pose.ground) out.push({ s: s - 1, draw: local(() => pose.ground(g, pose)) });
+    if (HAS_HAT(p.spec) && t >= tp + HAT_DELAY) {
+      const [hx, hy] = headOf(p.spec);
+      const mh = m0.translate(hx, hy + 40).rotate((pose.headTilt || 0) * 180 / Math.PI).translate(-hx, -(hy + 40));
+      const A = apply(mh, [hx, hy - 40]);
+      const f = fall(t, tp + HAT_DELAY, A, HAT_LAND);
+      out.push({ s: s + 1, draw: local(() => drawFalling(g, f, A, mh, (o) => drawHat(o, p.spec, hx, hy))) });
+    }
+  });
+  return out;
+}
+
+// 一条参差的断口：把 x0..x1 之间、高度 y 附近的线做成不规则的边。below=true 返回线下方的区域
+function raggedRegion(x0, x1, y, seed, t, below) {
+  const p = new Path2D();
+  const far = below ? y + 3000 : y - 3000;
+  p.moveTo(x0, far);
+  for (let x = x0; x <= x1; x += 14) {
+    p.lineTo(x, y + (hash(seed + Math.round(x * 0.37)) - 0.5) * 30 + 12 * Math.sin(x * 0.023 + seed + t * 2.2));
+  }
+  p.lineTo(x1, far);
+  p.closePath();
+  return p;
+}
+
+// 正在变成士兵的人：两层都用同一个过渡中的姿势和身高。断口以下画士兵，断口以上画原来的样子
+function drawMorphing(g, p, i, x, y, t) {
+  const tp = T_PASS[i];
+  const u = (t - tp) / MT;
+  const frozen = p.pose(actionTime(tp));                         // 红色到达的一刻，人僵住
+  const live = p.pose(actionTime(t));
+  const ep = smooth(u, 0.15, 0.85);
+  const sb = mix(p.spec.scale, SOLDIER.scale, ep);
+  const base = morphBase(frozen, ep);
+  const dropped = t >= tp + DROP_DELAY;
+  const keys = (frozen.held && frozen.held.kite) ? ['behind'] : ((frozen.held && frozen.held.keys) || []);
+  const civ = { ...base };
+  for (const key of ['behind', 'prop', 'over']) {
+    if (!frozen[key] || (dropped && keys.includes(key))) continue;
+    civ[key] = frozen[key];
+  }
+  const fxA = 1 - smooth(t, tp, tp + 0.6);                      // 已经飘在空中的音符、花瓣散掉
+  if (live.fx && fxA > 0) civ.fx = (o) => { const a = o.globalAlpha; o.globalAlpha = a * fxA; live.fx(o, live); o.globalAlpha = a; };
+  const sol = { ...base, prop(o) { o.save(); o.translate(RIFLE_BUTT[0], RIFLE_BUTT[1]); o.rotate(RIFLE_ANGLE); rifle(o, ep); o.restore(); } };
+  const civSpec = { ...p.spec, scale: sb, hat: HAS_HAT(p.spec) && t >= tp + HAT_DELAY ? undefined : p.spec.hat };
+  const solSpec = { ...blendSpec(p.spec, 1), scale: sb };
+  const sw = smooth(u, 0.05, 1.0);
+  const cut = y + 40 - (1000 * sb + 260) * sw;
+  g.save(); g.clip(raggedRegion(x - 700, x + 700, cut, i * 17 + 3, t, true)); person(g, x, y, solSpec, sol); g.restore();
+  g.save(); g.clip(raggedRegion(x - 700, x + 700, cut, i * 17 + 3, t, false)); person(g, x, y, civSpec, civ); g.restore();
 }
 
 // 红色区域：前沿是一条与队列垂直、带墨迹起伏的边，前沿之前（队首一侧）全部是红色。
@@ -726,7 +1016,7 @@ function redField(g, t) {
   g.lineTo(last[0] + DIR[0] * far, last[1] + DIR[1] * far);
   g.lineTo(edge[0][0] + DIR[0] * far, edge[0][1] + DIR[1] * far);
   g.closePath();
-  g.fillStyle = C.red;
+  g.fillStyle = redTone(t);
   g.fill();
   // 前沿一道更深的墨边
   g.strokeStyle = 'rgba(110,8,20,0.55)';
@@ -858,6 +1148,145 @@ function drawShadow(g, i, x, y, a) {
   g.restore();
 }
 
+// ---------- 每个人投在身后的影子 ----------
+// 光从左上方来，影子落在右后方、向右斜。影子按原来那个人画：第一段和本人一模一样；
+// 红色经过、人变成士兵以后，影子还是原来的样子，继续做原来的事；第三段跟着士兵的步子走；
+// 士兵化成灰的一刻，影子停住，烙在地上变成深色，留在原地。
+const CAST = { dx: 95, dy: -4, skew: 0.2, res: 0.5 };
+const castScratch = document.createElement('canvas');
+castScratch.width = SHADOW_BOX.w * CAST.res; castScratch.height = SHADOW_BOX.h * CAST.res;
+const castCtx = castScratch.getContext('2d');
+// 把一个人的剪影画成纯黑的遮罩
+function silhouette(o, spec, pose) {
+  o.setTransform(1, 0, 0, 1, 0, 0);
+  o.globalCompositeOperation = 'source-over';
+  o.clearRect(0, 0, o.canvas.width, o.canvas.height);
+  o.setTransform(CAST.res, 0, 0, CAST.res, -SHADOW_BOX.x * CAST.res, -SHADOW_BOX.y * CAST.res);
+  person(o, 0, 0, { ...spec, noContact: true }, pose);
+  o.setTransform(1, 0, 0, 1, 0, 0);
+  o.globalCompositeOperation = 'source-in';
+  o.fillStyle = '#000';
+  o.fillRect(0, 0, o.canvas.width, o.canvas.height);
+  o.globalCompositeOperation = 'source-over';
+}
+// 把遮罩画到世界坐标 (x, y) 的脚下：先平移 (dx, dy)，再以脚底这条线为轴向右斜
+// x' = X + dx - skew·(Y - y)，y' = Y + dy。遮罩是半分辨率的，放大后边缘本来就是软的，不再做模糊
+function blitCast(g, img, x, y, alpha, mode = 'multiply') {
+  if (alpha <= 0) return;
+  g.save();
+  g.globalAlpha = alpha; g.globalCompositeOperation = mode;
+  g.transform(1, 0, -CAST.skew, 1, CAST.dx + CAST.skew * y, CAST.dy);
+  g.drawImage(img, x + SHADOW_BOX.x, y + SHADOW_BOX.y, SHADOW_BOX.w, SHADOW_BOX.h);
+  g.restore();
+}
+// 影子的姿势：原来那个人在做的事；第三段双腿跟着士兵的步子
+function castPose(p, i, t, part3) {
+  const pose = p.pose(actionTime(t));
+  if (t < LOOK1) pose.headTilt = mix(pose.headTilt || 0, 0.4, lookAmt(t));
+  if (part3) {
+    const m = marchPose(t);
+    pose.kick = [(pose.kick ? pose.kick[0] : 0) + m.kick[0] * 0.8, (pose.kick ? pose.kick[1] : 0) + m.kick[1] * 0.8];
+    pose.backKick = [m.backKick[0] * 0.8, m.backKick[1] * 0.8];
+  }
+  return pose;
+}
+// 烙下的影子：姿势固定在化成灰的那一刻，只算一次
+const burnt = [];
+function burntShadow(p, i) {
+  if (!burnt[i]) {
+    const V = VANISH[i];
+    const mask = document.createElement('canvas');
+    mask.width = castScratch.width; mask.height = castScratch.height;
+    silhouette(mask.getContext('2d'), p.spec, castPose(p, i, V, true));
+    const dark = document.createElement('canvas');
+    dark.width = mask.width; dark.height = mask.height;
+    const d = dark.getContext('2d');
+    d.drawImage(mask, 0, 0);
+    d.globalCompositeOperation = 'source-in'; d.fillStyle = '#21050a'; d.fillRect(0, 0, dark.width, dark.height);
+    burnt[i] = { mask, dark };
+  }
+  return burnt[i];
+}
+// 纸上是淡灰的影子；红色铺开以后加深，在红底上也能看清
+const liveA = (t) => 0.38 + 0.2 * redAmt(t);
+function castShadow(g, p, i, x, y, t, part3, visible) {
+  const V = VANISH[i];
+  const LIVE_A = liveA(t);
+  if (part3 && t >= V) {
+    const b = burntShadow(p, i);
+    const k = smooth(t, V + 0.2, V + 1.2);
+    blitCast(g, b.mask, x, y, LIVE_A * (1 - k));
+    blitCast(g, b.dark, x, y, 0.92 * k, 'source-over');
+    return;
+  }
+  if (!visible) return;
+  silhouette(castCtx, p.spec, castPose(p, i, t, part3));
+  blitCast(g, castScratch, x, y, LIVE_A);
+}
+
+// ---------- 红色慢慢变深，像血 ----------
+// 第三段里，红色随时间、随消失的人数一点点加深，到最后接近干了的血
+function bloodDepth(t) {
+  if (t <= PART2_END) return 0;
+  let gone = 0;
+  for (const V of VANISH) gone += smooth(t, V + 0.4, V + 0.4 + BAR);
+  return clamp(0.45 * Math.pow(lin(t, PART2_END, PART3_END), 1.4) + 0.55 * gone / VANISH.length);
+}
+// 最深到暗红，不到黑：最后那个士兵和地上的影子还要看得清
+const redTone = (t) => mixColor(C.red, '#6b0d18', 0.85 * bloodDepth(t));
+// 士兵化成灰以后，脚下慢慢渗出一摊更深的血，边缘沿着纸纹伸出细丝
+function bloodStain(g, x, y, age, seed, R0 = 330) {
+  if (age <= 0) return;
+  const R = R0 * (1 - Math.exp(-age / 2.4));
+  g.save();
+  g.globalCompositeOperation = 'multiply';
+  const shape = (r, sq) => {
+    const p = new Path2D();
+    for (let k = 0; k <= 48; k++) {
+      const a = (k / 48) * Math.PI * 2;
+      const n = 0.72 + 0.18 * Math.sin(a * 3 + seed) + 0.1 * Math.sin(a * 7 + seed * 2.3) + 0.06 * hash(seed + k);
+      const px = x + 60 + Math.cos(a) * r * n, py = y + 6 + Math.sin(a) * r * n * sq;
+      k ? p.lineTo(px, py) : p.moveTo(px, py);
+    }
+    p.closePath();
+    return p;
+  };
+  g.fillStyle = 'rgba(92,10,22,0.55)'; g.fill(shape(R, 0.3));
+  g.fillStyle = 'rgba(52,4,12,0.45)'; g.fill(shape(R * 0.58, 0.26));
+  // 细丝：沿地面方向伸出去，越往外越细
+  g.strokeStyle = 'rgba(70,6,16,0.6)'; g.lineCap = 'round';
+  for (let k = 0; k < 9; k++) {
+    const a = (hash(seed * 3 + k) - 0.5) * 0.9 + (k % 2 ? Math.PI : 0);
+    const len = R * (0.35 + 0.45 * hash(seed + k * 5)) * smooth(age, 0.6, 4);
+    const sx = x + 60 + Math.cos(a) * R * 0.75, sy = y + 6 + Math.sin(a) * R * 0.22;
+    let px = sx, py = sy;
+    for (let j = 1; j <= 5; j++) {
+      const q = j / 5;
+      g.lineWidth = 7 * (1 - q) + 1;
+      const nx = sx + Math.cos(a) * len * q + 14 * Math.sin(q * 6 + k), ny = sy + Math.sin(a) * len * q * 0.3 + 6 * Math.cos(q * 5 + k);
+      g.beginPath(); g.moveTo(px, py); g.lineTo(nx, ny); g.stroke();
+      px = nx; py = ny;
+    }
+  }
+  g.restore();
+}
+// 第三段：画面下方和四周也慢慢被浸深，像纸吸饱了血
+function bloodSoak(g, t) {
+  const d = bloodDepth(t);
+  if (d <= 0) return;
+  g.save();
+  g.globalCompositeOperation = 'multiply';
+  const v = g.createLinearGradient(0, H * 0.45, 0, H);
+  v.addColorStop(0, 'rgba(90,10,20,0)');
+  v.addColorStop(1, `rgba(90,10,20,${0.38 * d})`);
+  g.fillStyle = v; g.fillRect(0, 0, W, H);
+  const r = g.createRadialGradient(W / 2, H * 0.55, H * 0.3, W / 2, H * 0.55, H * 0.8);
+  r.addColorStop(0, 'rgba(60,6,14,0)');
+  r.addColorStop(1, `rgba(60,6,14,${0.32 * d})`);
+  g.fillStyle = r; g.fillRect(0, 0, W, H);
+  g.restore();
+}
+
 // 化成灰：身体从头到脚被抹去，抹去的那一线不断飘出黑色灰烬，被风吹向右上方
 const hash = (n) => { const s = Math.sin(n * 12.9898 + 78.233) * 43758.5453; return s - Math.floor(s); };
 function ash(g, i, x, y, V, t) {
@@ -909,32 +1338,47 @@ export function queue(g, t) {
   };
   const part3 = t > PART2_END;
   airship(g, t);
-  background(g, shift * 0.45, bgMorph, part3 ? { t, march: (tt) => marchSmooth(tt) * ZOOM * 0.45 } : null);
+  background(g, shift * 0.45, bgMorph, part3 ? { t, march: (tt) => marchSmooth(tt) * ZOOM * 0.45 } : null, t);
   distantBirds(g, t);
   g.restore();
   g.save();
   g.translate(SC[0], SC[1]);
   g.scale(cam.zoom, cam.zoom);
   g.translate(-(c[0] + cam.off[0]), -(c[1] + cam.off[1]));
+  // 世界坐标里的点是否在画面附近（影子比人宽，留足余量）
+  const ox = c[0] + cam.off[0], oy = c[1] + cam.off[1];
+  const onScreen = (x, y, m = 1100) => {
+    const sx = (x - ox) * cam.zoom + SC[0], sy = (y - oy) * cam.zoom + SC[1];
+    return sx > -m * cam.zoom && sx < W + m * cam.zoom && sy > -200 && sy < H + 1800 * cam.zoom;
+  };
 
   redField(g, t);
+
+  // 第三段：化成灰的地方慢慢渗出血
+  if (part3) {
+    PEOPLE.forEach((p, i) => {
+      const V = VANISH[i];
+      const [x, y] = feetAt(soldierS(i, V));
+      if (onScreen(x, y, 900)) bloodStain(g, x, y, t - V - 0.5, i * 7 + 1);
+    });
+  }
 
   // 地面线（第三段队伍会往前走很远，所以画得很长）
   const a = feetAt(-1200), b = feetAt(12000);
   g.strokeStyle = C.ink; g.lineWidth = 2 / Math.max(cam.zoom / ZOOM, 0.3);
   g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
   bootPrints(g);
+  wireFence(g);
+  wireCoil(g, 2900, 3500);
 
-  // 第三段：影子烙在士兵身后的红色上，画在所有人的后面
-  if (part3) {
-    PEOPLE.forEach((p, i) => {
-      const V = VANISH[i];
-      const [x, y] = feetAt(soldierS(i, V));
-      drawShadow(g, i, x, y, 0.92 * smooth(t, V + 0.2, V + 1.2));
-    });
-  }
+  // 每个人投在身后的影子，画在所有人的后面
+  PEOPLE.forEach((p, i) => {
+    const s = part3 ? soldierS(i, t) : FIRST + i * SPACING;
+    const [x, y] = feetAt(s);
+    castShadow(g, p, i, x, y, t, part3, onScreen(x, y));
+  });
 
-  // 按队列位置从后往前画：木桩、人、地上的乌鸦
+  // 按队列位置从后往前画：木桩、人、掉在地上的东西、地上的乌鸦
   const items = [{ s: 0, draw: () => postAndCrow(g, t) }];
   const ta = actionTime(t), look = lookAmt(t);
   PEOPLE.forEach((p, i) => {
@@ -944,18 +1388,21 @@ export function queue(g, t) {
       draw: () => {
         const [x, y] = feetAt(s);
         if (!part3) {
-          const e = morphAt(t, s);
-          const pose = p.pose(ta);
-          pose.headTilt = mix(pose.headTilt || 0, 0.4, look);   // 抬头看天
-          person(g, x, y, blendSpec(p.spec, e), blendPose(pose, e));
+          const tp = T_PASS[i];
+          if (t < tp) {
+            const pose = p.pose(ta);
+            pose.headTilt = mix(pose.headTilt || 0, 0.4, look);   // 抬头看天
+            person(g, x, y, p.spec, pose);
+          } else if (t < tp + MT) drawMorphing(g, p, i, x, y, t);
+          else person(g, x, y, blendSpec(p.spec, 1), soldierPose(1));
           return;
         }
-        // 齐步走；到了消失时间，身体从头到脚被抹去，抹去的地方飘出灰烬
+        // 齐步走；到了消失时间，身体从头到脚被抹去（断口参差），抹去的地方飘出灰烬
         const V = VANISH[i];
         if (t < V + DISSOLVE) {
           const cut = y - 1200 * (1 - lin(t, V, V + DISSOLVE));
           g.save();
-          g.beginPath(); g.rect(x - 500, cut, 1000, y - cut + 80); g.clip();
+          g.clip(raggedRegion(x - 500, x + 500, cut, i * 13 + 5, t, true));
           person(g, x, y, blendSpec(p.spec, 1), marchPose(Math.min(t, V)));
           g.restore();
         }
@@ -963,10 +1410,12 @@ export function queue(g, t) {
       },
     });
   });
+  if (t > PART1_END) droppedItems(g, t).forEach((it) => items.push(it));
   GROUND_CROWS.forEach((cr) => items.push({ s: cr.s, draw: () => groundCrow(g, cr, t) }));
   items.sort((p, q) => p.s - q.s).forEach((it) => it.draw());
   g.restore();
 
+  bloodSoak(g, t);
   airshipShadow(g, t);
   windDebris(g, t, shift);
   foreground(g, t, shift, 520 * cam.k);

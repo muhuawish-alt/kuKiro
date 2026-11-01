@@ -93,24 +93,29 @@ const HATS = {
 const dressAmt = (spec) => (spec.dressAmt !== undefined ? spec.dressAmt : spec.dress ? 1 : 0);
 const hemOf = (spec) => (spec.hem !== undefined ? spec.hem : spec.dress ? (spec.dressLen || -170) : -(spec.coatLen || 400));
 
-// 钢盔：圆顶，后沿向下外翻，前沿一道短帽檐
+// 一战的碟形钢盔（Brodie）：浅圆顶，四周一圈宽而平的帽檐，下颌带
 function helmet(g, hx, hy) {
   g.fillStyle = C.ink;
-  g.beginPath();
-  g.moveTo(hx - 62, hy - 14);
-  g.quadraticCurveTo(hx - 58, hy - 30, hx - 48, hy - 34);
-  g.quadraticCurveTo(hx - 34, hy - 92, hx + 10, hy - 90);
-  g.quadraticCurveTo(hx + 58, hy - 86, hx + 60, hy - 30);
-  g.quadraticCurveTo(hx + 66, hy - 6, hx + 78, hy + 10);
-  g.lineTo(hx + 46, hy + 4);
-  g.quadraticCurveTo(hx + 20, hy - 22, hx - 30, hy - 18);
-  g.closePath();
-  g.fill();
+  g.beginPath();                                                     // 帽檐：两端略向下
+  g.moveTo(hx - 94, hy - 16);
+  g.quadraticCurveTo(hx - 56, hy - 36, hx + 2, hy - 38);
+  g.quadraticCurveTo(hx + 60, hy - 36, hx + 96, hy - 16);
+  g.lineTo(hx + 94, hy - 8);
+  g.quadraticCurveTo(hx + 58, hy - 26, hx + 2, hy - 28);
+  g.quadraticCurveTo(hx - 54, hy - 26, hx - 92, hy - 8);
+  g.closePath(); g.fill();
+  g.beginPath();                                                     // 帽顶
+  g.moveTo(hx - 54, hy - 33);
+  g.bezierCurveTo(hx - 52, hy - 96, hx + 56, hy - 96, hx + 58, hy - 33);
+  g.closePath(); g.fill();
   g.strokeStyle = 'rgba(247,241,227,0.45)'; g.lineWidth = 3;
-  g.beginPath(); g.moveTo(hx - 30, hy - 60); g.quadraticCurveTo(hx, hy - 84, hx + 34, hy - 70); g.stroke();
+  g.beginPath(); g.moveTo(hx - 34, hy - 60); g.quadraticCurveTo(hx - 4, hy - 84, hx + 30, hy - 72); g.stroke();
+  g.beginPath(); g.moveTo(hx - 84, hy - 20); g.quadraticCurveTo(hx, hy - 38, hx + 86, hy - 20); g.stroke();
+  g.strokeStyle = 'rgba(247,241,227,0.3)'; g.lineWidth = 2.5;      // 下颌带
+  g.beginPath(); g.moveTo(hx + 34, hy - 28); g.quadraticCurveTo(hx + 22, hy + 18, hx - 10, hy + 46); g.stroke();
 }
 
-// 步枪：从枪托 (0,0) 沿 -y 方向延伸，grow 0..1 控制长出来的长度
+// 步枪（李-恩菲尔德式）：从枪托 (0,0) 沿 -y 方向延伸，grow 0..1 控制长出来的长度
 export function rifle(g, grow = 1) {
   if (grow <= 0) return;
   const L = 560 * grow;
@@ -123,16 +128,40 @@ export function rifle(g, grow = 1) {
     g.fillRect(-7, -Math.min(L, 400), 13, Math.min(L, 400) - 200);                 // 护木
     g.fillRect(-4, -L, 7, L - Math.min(L, 400) + 2);                               // 枪管
     g.fillRect(6, -230, 18, 7);                                                     // 枪栓
+    g.fillRect(-20, -262, 14, 46);                                                  // 弹匣
   }
-  if (grow > 0.92) {                                                                 // 刺刀
+  if (grow > 0.92) {                                                                 // 长刺刀
     const b = (grow - 0.92) / 0.08;
     g.fillStyle = C.light;
-    g.beginPath(); g.moveTo(-3, -L); g.lineTo(4, -L); g.lineTo(0.5, -L - 110 * b); g.closePath(); g.fill();
+    g.beginPath(); g.moveTo(-3, -L); g.lineTo(4, -L); g.lineTo(0.5, -L - 165 * b); g.closePath(); g.fill();
+    g.fillStyle = C.ink; g.fillRect(-6, -L + 2, 13, 6);                            // 刺刀座
   }
   g.strokeStyle = 'rgba(247,241,227,0.4)'; g.lineWidth = 2;
   g.beginPath(); g.moveTo(-6, -20); g.lineTo(0, -Math.min(L, 190)); g.stroke();
+  if (L > 420) {                                                                     // 枪背带
+    g.strokeStyle = 'rgba(20,18,16,0.9)'; g.lineWidth = 4;
+    g.beginPath(); g.moveTo(14, -60); g.quadraticCurveTo(34, -230, 9, -400); g.stroke();
+  }
   g.restore();
 }
+
+// 绑腿：沿腿的下半段画斜着缠的布条
+function puttees(g, pts, width) {
+  const [a, b, c] = pts;
+  g.strokeStyle = 'rgba(247,241,227,0.28)'; g.lineWidth = 2.5; g.lineCap = 'round';
+  for (let s = 0.56; s < 0.95; s += 0.055) {
+    const u = 1 - s;
+    const x = u * u * a[0] + 2 * u * s * b[0] + s * s * c[0], y = u * u * a[1] + 2 * u * s * b[1] + s * s * c[1];
+    const tx = 2 * u * (b[0] - a[0]) + 2 * s * (c[0] - b[0]), ty = 2 * u * (b[1] - a[1]) + 2 * s * (c[1] - b[1]);
+    const l = Math.hypot(tx, ty) || 1, nx = -ty / l, ny = tx / l, h = width * 0.46;
+    g.beginPath(); g.moveTo(x - nx * h, y - ny * h + 7); g.lineTo(x + nx * h, y + ny * h - 7); g.stroke();
+  }
+}
+
+// 头的位置（帽子掉落时用）
+export const headOf = (spec) => [-6 - (spec.hunch || 0), -760 + (spec.hunch || 0) * 0.3];
+export function drawHat(g, spec, hx, hy) { HATS[spec.hat](g, hx, hy, spec.hatColor || C.ink, 0); }
+export const HAS_HAT = (spec) => ['flatCap', 'bowler', 'fedora', 'schoolCap'].includes(spec.hat);
 
 function torsoPath(spec, pose, hem) {
   const p = new Path2D();
@@ -162,10 +191,12 @@ export function person(g, x, y, spec, pose) {
   g.translate(x, y);
   g.scale(s, s);
 
-  // 地上的影子，偏向右后方
-  g.fillStyle = 'rgba(20,18,16,0.14)';
-  g.beginPath(); g.ellipse(70, -4, 170, 20, 0, 0, Math.PI * 2); g.fill();
-  if (pose.ground) pose.ground(g);   // 地上的小物件（石子），不随上半身倾斜
+  // 脚下的接触阴影（画投影剪影时不画）
+  if (!spec.noContact) {
+    g.fillStyle = 'rgba(20,18,16,0.14)';
+    g.beginPath(); g.ellipse(70, -4, 170, 20, 0, 0, Math.PI * 2); g.fill();
+  }
+  if (pose.ground) pose.ground(g, pose);   // 地上的小物件（石子），不随上半身倾斜
 
   // 腿（裙子下露出的细腿，到外套下的粗裤腿，可以连续变化）
   const d = dressAmt(spec);
@@ -180,15 +211,36 @@ export function person(g, x, y, spec, pose) {
   limb(g, [[-24, legTop], [-26 + kick[0] * 0.4, -230 + kick[1] * 0.4], [-28 + kick[0], -20 + kick[1]]], legW, legColor);
   shoe(g, 22 + bk[0], bk[1]);
   shoe(g, -28 + kick[0], kick[1]);
+  const gear = spec.gear || 0;                                // 一战士兵的装具：绑腿、背包、子弹盒、斜挎带
+  if (gear > 0) {
+    const a = g.globalAlpha;
+    g.globalAlpha = a * gear;
+    puttees(g, [[22, legTop], [24 + bk[0] * 0.4, -230 + bk[1] * 0.4], [26 + bk[0], -20 + bk[1]]], legW);
+    puttees(g, [[-24, legTop], [-26 + kick[0] * 0.4, -230 + kick[1] * 0.4], [-28 + kick[0], -20 + kick[1]]], legW);
+    g.globalAlpha = a;
+  }
 
   // 上半身绕髋部前后倾
   g.save();
   g.translate(0, -440); g.rotate(pose.lean || 0); g.translate(0, 440);
   const hx = -6 - (spec.hunch || 0), hy = -760 + (spec.hunch || 0) * 0.3;
 
-  if (pose.behind) pose.behind(g);
+  if (pose.behind) pose.behind(g, pose);
   const backArm = pose.backArm || [[34, -660], [54, -545], [50, -445]];
   if (!pose.backArmFront) limb(g, backArm, 32, shade(coat, 0.35));
+
+  if (gear > 0) {                                             // 背包和卷起的毯子，在身体后面
+    const a = g.globalAlpha;
+    g.globalAlpha = a * gear;
+    g.fillStyle = shade(coat, 0.25);
+    g.beginPath(); g.roundRect(40, -676, 92, 170, 14); g.fill();
+    g.fillStyle = shade(coat, 0.05);
+    g.beginPath(); g.ellipse(84, -690, 54, 22, 0, 0, Math.PI * 2); g.fill();
+    g.strokeStyle = 'rgba(247,241,227,0.35)'; g.lineWidth = 2.5;
+    g.beginPath(); g.moveTo(44, -690); g.lineTo(124, -690); g.stroke();
+    g.beginPath(); g.moveTo(96, -664); g.lineTo(96, -512); g.stroke();
+    g.globalAlpha = a;
+  }
 
   const hem = hemOf(spec);
   garment(g, torsoPath(spec, pose, hem), coat, { pat: spec.pattern, patA: spec.patA !== undefined ? spec.patA : 1, top: -720, bottom: hem });
@@ -208,6 +260,19 @@ export function person(g, x, y, spec, pose) {
   if (d > 0) {
     g.globalAlpha = a0 * d;
     g.beginPath(); g.moveTo(-76, -470); g.lineTo(72, -470); g.stroke();
+  }
+  if (gear > 0) {                                             // 斜挎带、腰带上的子弹盒
+    g.globalAlpha = a0 * gear;
+    g.strokeStyle = 'rgba(20,18,16,0.85)'; g.lineWidth = 9;
+    g.beginPath(); g.moveTo(-40, -690); g.lineTo(66, -486); g.stroke();
+    g.strokeStyle = 'rgba(247,241,227,0.4)'; g.lineWidth = 2;
+    g.beginPath(); g.moveTo(-36, -694); g.lineTo(70, -490); g.stroke();
+    for (let k = 0; k < 3; k++) {
+      const px = -84 + k * 34;
+      g.fillStyle = C.ink; g.fillRect(px, -500, 28, 38);
+      g.strokeStyle = 'rgba(247,241,227,0.5)'; g.lineWidth = 2;
+      g.beginPath(); g.moveTo(px + 2, -492); g.lineTo(px + 26, -492); g.stroke();
+    }
   }
   g.globalAlpha = a0 * accA;
 
@@ -264,7 +329,7 @@ export function person(g, x, y, spec, pose) {
 
   g.globalAlpha = a0;
   if (pose.backArmFront) limb(g, backArm, 32, shade(coat, 0.2));
-  if (pose.prop) pose.prop(g);
+  if (pose.prop) pose.prop(g, pose);
 
   // 前臂、袖口、手
   const arm = pose.arm || [[-24, -660], [-40, -545], [-44, -440]];
@@ -279,7 +344,8 @@ export function person(g, x, y, spec, pose) {
   const bh = backArm[backArm.length - 1];
   if (pose.backArmFront) { g.beginPath(); g.arc(bh[0], bh[1], 17, 0, Math.PI * 2); g.fill(); }
 
-  if (pose.over) pose.over(g);
+  if (pose.over) pose.over(g, pose);
+  if (pose.fx) pose.fx(g, pose);       // 飘出去的东西（音符、花瓣、面包屑），不会跟着道具掉落
   g.restore(); // 前倾
   g.restore();
 }
