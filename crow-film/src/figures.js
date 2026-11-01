@@ -145,10 +145,15 @@ export function rifle(g, grow = 1) {
   g.restore();
 }
 
+// 细节程度 0..1：镜头拉远时调低，装具和绑腿上的细白线跟着变淡，免得在全景里变成杂纹
+let DETAIL = 1;
+export function setDetail(d) { DETAIL = d; }
+const fine = (a) => `rgba(247,241,227,${a * (0.2 + 0.8 * DETAIL)})`;
+
 // 绑腿：沿腿的下半段画斜着缠的布条
 function puttees(g, pts, width) {
   const [a, b, c] = pts;
-  g.strokeStyle = 'rgba(247,241,227,0.28)'; g.lineWidth = 2.5; g.lineCap = 'round';
+  g.strokeStyle = fine(0.28); g.lineWidth = 2.5; g.lineCap = 'round';
   for (let s = 0.56; s < 0.95; s += 0.055) {
     const u = 1 - s;
     const x = u * u * a[0] + 2 * u * s * b[0] + s * s * c[0], y = u * u * a[1] + 2 * u * s * b[1] + s * s * c[1];
@@ -236,7 +241,7 @@ export function person(g, x, y, spec, pose) {
     g.beginPath(); g.roundRect(40, -676, 92, 170, 14); g.fill();
     g.fillStyle = shade(coat, 0.05);
     g.beginPath(); g.ellipse(84, -690, 54, 22, 0, 0, Math.PI * 2); g.fill();
-    g.strokeStyle = 'rgba(247,241,227,0.35)'; g.lineWidth = 2.5;
+    g.strokeStyle = fine(0.35); g.lineWidth = 2.5;
     g.beginPath(); g.moveTo(44, -690); g.lineTo(124, -690); g.stroke();
     g.beginPath(); g.moveTo(96, -664); g.lineTo(96, -512); g.stroke();
     g.globalAlpha = a;
@@ -265,12 +270,12 @@ export function person(g, x, y, spec, pose) {
     g.globalAlpha = a0 * gear;
     g.strokeStyle = 'rgba(20,18,16,0.85)'; g.lineWidth = 9;
     g.beginPath(); g.moveTo(-40, -690); g.lineTo(66, -486); g.stroke();
-    g.strokeStyle = 'rgba(247,241,227,0.4)'; g.lineWidth = 2;
+    g.strokeStyle = fine(0.4); g.lineWidth = 2;
     g.beginPath(); g.moveTo(-36, -694); g.lineTo(70, -490); g.stroke();
     for (let k = 0; k < 3; k++) {
       const px = -84 + k * 34;
       g.fillStyle = C.ink; g.fillRect(px, -500, 28, 38);
-      g.strokeStyle = 'rgba(247,241,227,0.5)'; g.lineWidth = 2;
+      g.strokeStyle = fine(0.5); g.lineWidth = 2;
       g.beginPath(); g.moveTo(px + 2, -492); g.lineTo(px + 26, -492); g.stroke();
     }
   }

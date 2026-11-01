@@ -1,11 +1,11 @@
-// 播放、音频同步和导出。目前完成前三段（0–47.07 秒），多放一小节看音乐骤停后的画面。
-import { W, H, BAR } from './draw.js';
-import { queue, PART3_END } from './queue.js';
+// 播放、音频同步和导出。全片 0–48.945 秒：音乐在 47.07 秒骤停，之后一小节画面停在女孩的影子上并淡出。
+import { W, H } from './draw.js';
+import { queue, FILM_END } from './queue.js';
 import { canExport, exportWebM } from './export.js';
 
 const AUDIO_START = 44.18;           // 原曲中的起点
-const PREVIEW_END = PART3_END + BAR; // 48.945 秒
-const EXPORT_NAME = '鸦_0-49秒.webm';
+const PREVIEW_END = FILM_END;        // 48.945 秒
+const EXPORT_NAME = '留影.webm';
 const FILE = 'Kam Ridr - the other side of paradise（顶级智斗）_627244913.mp3';
 // 放在仓库里时音频在 ../；在沙盒工作区时在 ../kuKiro/
 const AUDIO_CANDIDATES = ['../' + FILE, '../kuKiro/' + FILE];
@@ -119,7 +119,7 @@ document.getElementById('rec').onclick = async () => {
     // 逐帧导出：每帧按精确时间渲染，速度慢的电脑也不会掉帧
     ui.classList.add('hidden');
     const blob = await exportWebM({
-      canvas, render, duration: PREVIEW_END, fps: 30, audioBytes, audioStart: AUDIO_START, fadeOut: 0.25,
+      canvas, render, duration: PREVIEW_END, fps: 30, audioBytes, audioStart: AUDIO_START, fadeOut: 0.6,
       onProgress: (p) => { label.textContent = '导出中 ' + Math.round(p * 100) + '%'; },
     });
     ui.classList.remove('hidden');

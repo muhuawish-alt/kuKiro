@@ -6,7 +6,7 @@ import {
   W, H, BAR, BEAT, C, lin, smooth, mix, mixColor, wave, pulse, phaseIn, mod, shade, clamp,
   icon, iconPath, makePaper, flyingCrow, garment,
 } from './draw.js';
-import { person, rifle, headOf, drawHat, HAS_HAT } from './figures.js';
+import { person, rifle, headOf, drawHat, HAS_HAT, setDetail } from './figures.js';
 
 export const PART1_END = 16.875;
 
@@ -102,23 +102,6 @@ function wireFence(g) {
     for (const h of [120, 220]) barbedWire(g, [A[0], A[1] - h], [B[0], B[1] - h], 22);
   }
 }
-// 队首附近地上一卷蛇腹形铁丝网（一圈一圈的环，沿地面排开），稍微靠后一点
-function wireCoil(g, s0, s1) {
-  g.strokeStyle = C.ink; g.lineCap = 'round';
-  for (let s = s0; s <= s1; s += 34) {
-    const [x, y] = feetAt(s);
-    const cx = x + 30, cy = y - 92;
-    g.lineWidth = 2.5;
-    g.beginPath(); g.ellipse(cx, cy, 34, 86, -0.35, 0, Math.PI * 2); g.stroke();
-    g.lineWidth = 2;
-    const a = (s * 0.37) % 6.28;
-    for (const d of [0, 2.1, 4.2]) {
-      const px = cx + 34 * Math.cos(a + d) * 0.94 - 86 * Math.sin(a + d) * -0.34, py = cy + 34 * Math.cos(a + d) * -0.34 + 86 * Math.sin(a + d) * 0.94;
-      g.beginPath(); g.moveTo(px - 6, py - 6); g.lineTo(px + 6, py + 6); g.moveTo(px + 6, py - 6); g.lineTo(px - 6, py + 6); g.stroke();
-    }
-  }
-}
-
 // ---------- 队尾：木桩和乌鸦 ----------
 function postAndCrow(g, t) {
   const [x, y] = feetAt(0);
@@ -138,12 +121,8 @@ function postAndCrow(g, t) {
 // ---------- 地上的乌鸦 ----------
 // 越靠近队首，地上的乌鸦越多
 const GROUND_CROWS = [
-  { s: 790, phase: 0.2, size: 200 },
   { s: 1730, phase: 0.9, size: 220 },
-  { s: 2420, phase: 0.4, size: 180 },
-  { s: 2650, phase: 0.5, size: 190 },
   { s: 2980, phase: 1.3, size: 210 },
-  { s: 3260, phase: 0.7, size: 180 },
   { s: 3480, phase: 1.6, size: 200 },
 ];
 function groundCrow(g, c, t) {
@@ -478,7 +457,7 @@ const PEOPLE = [
 // ---------- 背景：远处一列浅灰的小人（速度是主镜头的 0.45 倍） ----------
 // morph(x, y) 返回屏幕位置 (x, y) 处小人变成士兵的进度 0..1（红色经过后开始变）
 // life 只在第三段使用：{ t, march(t) }。小人跟着队伍走，到时间就消失，原地留下原来样子的影子
-// 远处小人的影子：和近处的人一样，投在右后方，而且永远是原来的样子
+// 远处小人消失后烙下的影子：投在右后方，是原来的样子（活着的时候不画影子，画面更干净）
 const BG_SH = [14, -2], BG_SKEW = 0.2;
 function bgShadow(g, x, y, k, i, alpha, color = '#000', mode = 'multiply') {
   if (alpha <= 0) return;
@@ -489,9 +468,8 @@ function bgShadow(g, x, y, k, i, alpha, color = '#000', mode = 'multiply') {
   g.restore();
 }
 
-function background(g, shift, morph = () => 0, life = null, t = 0) {
+function background(g, shift, morph = () => 0, life = null) {
   const ax = 760, ay = 1180;
-  smoke(g, t, shift);
   for (let i = -12; i < 40; i++) {
     let x = ax + DIR[0] * i * 150 + SCREEN_DIR[0] * shift;
     let y = ay + DIR[1] * i * 150 + SCREEN_DIR[1] * shift;
@@ -508,7 +486,6 @@ function background(g, shift, morph = () => 0, life = null, t = 0) {
         g.beginPath(); g.ellipse(x + 6, y + 1, r * (1 + 0.3 * hash(i)), r * 0.3, 0, 0, Math.PI * 2); g.fill();
         g.restore();
       }
-      bgShadow(g, x, y, k, i, 0.3 * (1 - sh));
       bgShadow(g, x, y, k, i, 0.9 * sh, '#4d4a4a', 'source-over');
       if (life.t < vt + 0.45) {                                    // 从头到脚化掉
         const cut = y - 150 * (1 - lin(life.t, vt, vt + 0.45));
@@ -519,7 +496,6 @@ function background(g, shift, morph = () => 0, life = null, t = 0) {
       continue;
     }
     if (x < -60 || x > W + 60) continue;
-    bgShadow(g, x, y, k, i, 0.3);
     const e = morph(x, y);
     if (e <= 0) { bgFigure(g, x, y, k, 0, i, C.light); continue; }
     if (e >= 1) { bgFigure(g, x, y, k, 1, i, C.warm); continue; }
@@ -559,39 +535,11 @@ function bgFigure(g, x, y, k, e, i, color) {
   g.fill(bgPath(x, y, k, e, i));
 }
 
-// 地平线后面升起的几股烟：前线的炮火在很远的地方，烟慢慢往上、往右飘
-const SMOKE = [{ x: 220, t0: 5.0 }, { x: 1150, t0: 8.0 }, { x: 1900, t0: 10.5 }, { x: 2700, t0: 3.0 }];
-// 一团烟：边缘柔和的圆（预先画好，避免每帧做模糊）
-const PUFF = (() => {
-  const c = document.createElement('canvas');
-  c.width = c.height = 128;
-  const o = c.getContext('2d');
-  const grd = o.createRadialGradient(64, 64, 0, 64, 64, 64);
-  grd.addColorStop(0, 'rgba(95,99,102,1)'); grd.addColorStop(0.55, 'rgba(95,99,102,0.7)'); grd.addColorStop(1, 'rgba(95,99,102,0)');
-  o.fillStyle = grd; o.fillRect(0, 0, 128, 128);
-  return c;
-})();
-function smoke(g, t, shift) {
-  g.save();
-  for (const s of SMOKE) {
-    const a = smooth(t, s.t0, s.t0 + 3);
-    if (a <= 0) continue;
-    const bx = mod(s.x + SCREEN_DIR[0] * shift * 0.6, W + 900) - 450, by = 1040 + SCREEN_DIR[1] * shift * 0.6 * 0.2;
-    for (let k = 0; k < 9; k++) {
-      const age = mod(t * 0.22 + k / 9, 1);                 // 每团烟从底部升起，越升越大越淡
-      const r = 34 + 100 * age;
-      g.globalAlpha = a * 0.2 * Math.sin(Math.PI * age);
-      g.drawImage(PUFF, bx + 120 * age * age + 12 * Math.sin(k * 2.1 + t * 0.5) - r, by - 40 - 420 * age - r, 2 * r, 2 * r);
-    }
-  }
-  g.restore();
-}
-
 // 远处的鸟群：越来越多，新加入的鸟慢慢浮现
 function distantBirds(g, t) {
   g.strokeStyle = C.warm; g.lineWidth = 3; g.lineCap = 'round';
-  for (let i = 0; i < 24; i++) {
-    const appear = i < 6 ? -1 : 2 + i * 0.6;
+  for (let i = 0; i < 8; i++) {
+    const appear = i < 3 ? -1 : 2 + i * 1.2;
     const a = smooth(t, appear, appear + 1.2);
     if (a <= 0) continue;
     const x = mod(200 + i * 83 + 60 * t, W + 400) - 200;
@@ -676,12 +624,13 @@ function bootPrints(g) {
 }
 
 // ---------- 风里飘的东西：灰烬、枯叶、盖着红印的传单 ----------
-// 灰烬随时间越来越多
+// 灰烬随时间越来越多；第二段结束前枯叶和传单慢慢散掉，第三段只剩灰烬
 function windDebris(g, t, shift) {
-  for (let i = 0; i < 34; i++) {
+  for (let i = 0; i < 10; i++) {
     const type = i % 4;
-    const appear = i < 16 ? -1 : 1.5 + (i - 16) * 0.7;
-    const alpha = smooth(t, appear, appear + 1);
+    const appear = i < 5 ? -1 : 3 + (i - 5) * 1.6;
+    const late = type === 1 || type === 2 ? 1 - smooth(t, PART2_END - 3, PART2_END) : 1;
+    const alpha = smooth(t, appear, appear + 1) * late;
     if (alpha <= 0) continue;
     const x = mod(i * 173 + 150 * t + SCREEN_DIR[0] * shift * 1.2, W + 300) - 150;
     const y = mod(i * 311 + 26 * Math.sin(t * 0.8 + i) + SCREEN_DIR[1] * shift * 1.2 - 18 * t, H + 200) - 100;
@@ -735,7 +684,7 @@ const GREEN_DARK = '#262f2b';                        // C.green 加深 35%
 const fgLayer = document.createElement('canvas');
 fgLayer.width = W; fgLayer.height = H;
 const fg = fgLayer.getContext('2d');
-const POLE_TIMES = [3.6, 9.6, 14.6];
+const POLE_TIMES = [3.6];                            // 只留一根，从男孩和面包师之间的空白处经过
 
 function foreground(g, t, shift, rise) {
   const v = SPEED_PX * FG_K * SCREEN_DIR[0];      // 前景横向速度
@@ -902,7 +851,8 @@ function fall(t, t0, A, land) {
   let rot = land.rot * (u * u * (3 - 2 * u));
   if (land.flutter) { x += 46 * Math.sin(u * 6.5) * (1 - u); rot += 0.35 * Math.sin(u * 8) * (1 - u); }
   const bounce = tau > T ? 10 * Math.exp(-(tau - T) * 14) * Math.abs(Math.sin((tau - T) * 22)) : 0;
-  return { x, y: y - bounce, rot, sq: mix(1, land.squash, smooth(u, 0.5, 1)) };
+  // soak：落地以后一点点变暗、变灰，像被地上的红色浸透，不再比士兵亮
+  return { x, y: y - bounce, rot, sq: mix(1, land.squash, smooth(u, 0.5, 1)), rest: tau - T, soak: smooth(tau - T, 0.35, 2.2) };
 }
 // 在人物局部坐标里画一件掉落的东西：m0 是它原来在身上时的变换，A 是它原来的中心
 function drawFalling(g, f, A, m0, draw) {
@@ -911,6 +861,33 @@ function drawFalling(g, f, A, m0, draw) {
   g.transform(m0.a, m0.b, m0.c, m0.d, m0.e, m0.f);
   draw(g);
   g.restore();
+}
+// 落定以后东西不再动：把原样和浸透后的样子各画一次存起来，之后每帧只按 soak 叠两张图
+// （每帧对矢量图形做滤镜太慢）
+const LANDED = new Map();
+const LBOX = [420, 280], LRES = 1.25;
+function drawDropped(g, key, f, A, m0, draw) {
+  if (f.rest < 0.35) { drawFalling(g, f, A, m0, draw); return; }
+  let c = LANDED.get(key);
+  if (!c) {
+    const make = () => { const k = document.createElement('canvas'); k.width = 2 * LBOX[0] * LRES; k.height = 2 * LBOX[1] * LRES; return k; };
+    const normal = make(), soaked = make();
+    const o = normal.getContext('2d');
+    o.setTransform(LRES, 0, 0, LRES, (LBOX[0] - f.x) * LRES, (LBOX[1] - f.y) * LRES);
+    drawFalling(o, { ...f, y: f.y }, A, m0, draw);
+    const s = soaked.getContext('2d');
+    s.filter = 'brightness(0.38) saturate(0.2)';
+    s.drawImage(normal, 0, 0);
+    c = { normal, soaked, x: f.x, y: f.y };
+    LANDED.set(key, c);
+  }
+  g.drawImage(c.normal, c.x - LBOX[0], c.y - LBOX[1], 2 * LBOX[0], 2 * LBOX[1]);
+  if (f.soak > 0) {
+    const a = g.globalAlpha;
+    g.globalAlpha = a * f.soak;
+    g.drawImage(c.soaked, c.x - LBOX[0], c.y - LBOX[1], 2 * LBOX[0], 2 * LBOX[1]);
+    g.globalAlpha = a;
+  }
 }
 
 // 变成士兵以后留在原地的东西（掉落的道具、帽子、飞走的风筝、地上的石子），画在世界坐标里
@@ -940,7 +917,7 @@ function droppedItems(g, t) {
       const A = apply(m0, held.at);
       const f = fall(t, tp + DROP_DELAY, A, LAND[i]);
       const behind = held.keys[0] === 'behind';
-      out.push({ s: s + (behind ? -1 : 1), draw: local(() => drawFalling(g, f, A, m0, (o) => held.keys.forEach((key) => pose[key](o, pose)))) });
+      out.push({ s: s + (behind ? -1 : 1), draw: local(() => drawDropped(g, 'held' + i, f, A, m0, (o) => held.keys.forEach((key) => pose[key](o, pose)))) });
     }
     if (pose.ground) out.push({ s: s - 1, draw: local(() => pose.ground(g, pose)) });
     if (HAS_HAT(p.spec) && t >= tp + HAT_DELAY) {
@@ -948,7 +925,7 @@ function droppedItems(g, t) {
       const mh = m0.translate(hx, hy + 40).rotate((pose.headTilt || 0) * 180 / Math.PI).translate(-hx, -(hy + 40));
       const A = apply(mh, [hx, hy - 40]);
       const f = fall(t, tp + HAT_DELAY, A, HAT_LAND);
-      out.push({ s: s + 1, draw: local(() => drawFalling(g, f, A, mh, (o) => drawHat(o, p.spec, hx, hy))) });
+      out.push({ s: s + 1, draw: local(() => drawDropped(g, 'hat' + i, f, A, mh, (o) => drawHat(o, p.spec, hx, hy))) });
     }
   });
   return out;
@@ -1040,6 +1017,8 @@ function redField(g, t) {
 // 原地留下一个影子，影子是他原来的样子。队伍补上空位继续走。最后几小节越来越快。
 // ====================================================================
 export const PART3_END = 47.07;
+// 全片在音乐骤停后一小节结束：女孩化成灰、影子烙下，画面停在她的影子上，再淡出
+export const FILM_END = PART3_END + BAR;            // 48.945 秒
 const MARCH_T0 = PART2_END;
 const STEP = 75;                                     // 每拍一步
 const MARCH_V = STEP / BEAT;                         // 约 160 世界单位/秒
@@ -1152,7 +1131,14 @@ function drawShadow(g, i, x, y, a) {
 // 光从左上方来，影子落在右后方、向右斜。影子按原来那个人画：第一段和本人一模一样；
 // 红色经过、人变成士兵以后，影子还是原来的样子，继续做原来的事；第三段跟着士兵的步子走；
 // 士兵化成灰的一刻，影子停住，烙在地上变成深色，留在原地。
-const CAST = { dx: 95, dy: -4, skew: 0.2, res: 0.5 };
+// 影子“走出来”：变成士兵之前，影子又淡又贴着身后（dx0、skew0），几乎被身体挡住，不占人和人之间的空白；
+// 军装长到头顶时，影子从身后滑到旁边（dx1、skew1），露出原来那个人
+const CAST = { dx0: 16, skew0: 0.03, a0: 0.2, dx1: 95, skew1: 0.2, a1: 0.58, dy: -4, res: 0.5 };
+function revealAt(i, t) {
+  if (t > PART2_END) return 1;
+  const tp = T_PASS[i];
+  return smooth(t, tp + 0.7 * MT, tp + MT + 0.9);
+}
 const castScratch = document.createElement('canvas');
 castScratch.width = SHADOW_BOX.w * CAST.res; castScratch.height = SHADOW_BOX.h * CAST.res;
 const castCtx = castScratch.getContext('2d');
@@ -1171,11 +1157,12 @@ function silhouette(o, spec, pose) {
 }
 // 把遮罩画到世界坐标 (x, y) 的脚下：先平移 (dx, dy)，再以脚底这条线为轴向右斜
 // x' = X + dx - skew·(Y - y)，y' = Y + dy。遮罩是半分辨率的，放大后边缘本来就是软的，不再做模糊
-function blitCast(g, img, x, y, alpha, mode = 'multiply') {
+function blitCast(g, img, x, y, alpha, mode = 'multiply', r = 1) {
   if (alpha <= 0) return;
+  const dx = mix(CAST.dx0, CAST.dx1, r), skew = mix(CAST.skew0, CAST.skew1, r);
   g.save();
   g.globalAlpha = alpha; g.globalCompositeOperation = mode;
-  g.transform(1, 0, -CAST.skew, 1, CAST.dx + CAST.skew * y, CAST.dy);
+  g.transform(1, 0, -skew, 1, dx + skew * y, CAST.dy);
   g.drawImage(img, x + SHADOW_BOX.x, y + SHADOW_BOX.y, SHADOW_BOX.w, SHADOW_BOX.h);
   g.restore();
 }
@@ -1207,21 +1194,20 @@ function burntShadow(p, i) {
   }
   return burnt[i];
 }
-// 纸上是淡灰的影子；红色铺开以后加深，在红底上也能看清
-const liveA = (t) => 0.38 + 0.2 * redAmt(t);
 function castShadow(g, p, i, x, y, t, part3, visible) {
   const V = VANISH[i];
-  const LIVE_A = liveA(t);
+  const r = revealAt(i, t);
+  const liveA = mix(CAST.a0, CAST.a1, r);
   if (part3 && t >= V) {
     const b = burntShadow(p, i);
     const k = smooth(t, V + 0.2, V + 1.2);
-    blitCast(g, b.mask, x, y, LIVE_A * (1 - k));
+    blitCast(g, b.mask, x, y, liveA * (1 - k));
     blitCast(g, b.dark, x, y, 0.92 * k, 'source-over');
     return;
   }
   if (!visible) return;
   silhouette(castCtx, p.spec, castPose(p, i, t, part3));
-  blitCast(g, castScratch, x, y, LIVE_A);
+  blitCast(g, castScratch, x, y, liveA, 'multiply', r);
 }
 
 // ---------- 红色慢慢变深，像血 ----------
@@ -1320,6 +1306,7 @@ function bgVanishTime(i) {
 export function queue(g, t) {
   g.drawImage(paper, 0, 0);
   const cam = camera(t);
+  setDetail(clamp((cam.zoom - 0.45) / 0.6));        // 全景里装具的细线变淡
   const shift = (cam.sig - SIGMA0) * ZOOM;          // 视差层按镜头沿队列的位置移动
 
   // 远景：镜头拉远时，远处的东西缩小得比近处慢
@@ -1338,7 +1325,7 @@ export function queue(g, t) {
   };
   const part3 = t > PART2_END;
   airship(g, t);
-  background(g, shift * 0.45, bgMorph, part3 ? { t, march: (tt) => marchSmooth(tt) * ZOOM * 0.45 } : null, t);
+  background(g, shift * 0.45, bgMorph, part3 ? { t, march: (tt) => marchSmooth(tt) * ZOOM * 0.45 } : null);
   distantBirds(g, t);
   g.restore();
   g.save();
@@ -1369,7 +1356,6 @@ export function queue(g, t) {
   g.beginPath(); g.moveTo(a[0], a[1]); g.lineTo(b[0], b[1]); g.stroke();
   bootPrints(g);
   wireFence(g);
-  wireCoil(g, 2900, 3500);
 
   // 每个人投在身后的影子，画在所有人的后面
   PEOPLE.forEach((p, i) => {
@@ -1421,8 +1407,8 @@ export function queue(g, t) {
   foreground(g, t, shift, 520 * cam.k);
   grade(g, t);
 
-  // 开头两拍从黑色淡入
-  const fade = 1 - lin(t, 0, 0.94);
+  // 开头两拍从黑色淡入；结尾停在女孩的影子上，最后 0.6 秒淡出到黑
+  const fade = Math.max(1 - lin(t, 0, 0.94), smooth(t, FILM_END - 0.6, FILM_END));
   if (fade > 0) { g.fillStyle = `rgba(20,18,16,${fade})`; g.fillRect(0, 0, W, H); }
 }
 
