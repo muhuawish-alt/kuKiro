@@ -19,6 +19,10 @@
 - `src/export.js`：逐帧导出 WebM（WebCodecs 编码 + WebM 封装）
 - `src/main.js`：播放、音频同步、导出按钮
 - `src/icons.js`：图标路径数据
+- `cover/bilibili_1920x1080.png`、`cover/douyin_1080x1920.png`：B站和抖音封面
+- `cover.html`、`src/cover.js`：封面的绘制代码，打开 `cover.html` 可以重新生成并下载 PNG
+
+封面字体是思源宋体 Black 和思源黑体 Medium（Noto Serif SC / Noto Sans SC）。字体文件太大，没有放进仓库：`cover.html` 会先找 `crow-film/fonts/` 里的 `NotoSerifSC-Black.otf` 和 `NotoSansSC-Medium.otf`，找不到就从 [notofonts/noto-cjk](https://github.com/notofonts/noto-cjk) 下载。
 
 导出按钮会逐帧渲染再编码，不会掉帧。需要 Chrome 或 Edge，并且页面通过 `https` 或 `localhost` 打开；条件不满足时会退回实时录制。
 
@@ -41,5 +45,7 @@ python3 -m http.server 8000
 - Zajkonur：violin
 
 原图的方形背景已去掉，颜色改为黑色。公开发布成片时，请在片尾或简介中注明以上署名。
+
+封面字体：Noto Serif SC、Noto Sans SC（Google / Adobe），许可证 [SIL Open Font License 1.1](https://openfontlicense.org)。
 
 配乐：Kam Ridr - the other side of paradise。公开发布前请确认音乐授权。

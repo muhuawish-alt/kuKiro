@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>留影 · 封面</title>
+<style>
+  body { margin: 0; background: #1a1a1a; color: #ccc; font-family: sans-serif; display: flex; gap: 24px; padding: 24px; align-items: flex-start; flex-wrap: wrap; }
+  figure { margin: 0; }
+  #bili { width: 960px; }
+  #douyin { width: 304px; }
+  figcaption { font-size: 13px; margin-top: 6px; }
+  button { margin-left: 8px; background: #333; color: #ddd; border: 1px solid #555; padding: 4px 10px; cursor: pointer; }
+</style>
+</head>
+<body>
+<figure><canvas id="bili"></canvas><figcaption>B站 1920×1080<button data-for="bili" data-name="留影_B站封面_1920x1080.png">下载 PNG</button></figcaption></figure>
+<figure><canvas id="douyin"></canvas><figcaption>抖音 1080×1920<button data-for="douyin" data-name="留影_抖音封面_1080x1920.png">下载 PNG</button></figcaption></figure>
+<script type="module">
+  import { renderBili, renderDouyin, loadFonts } from './src/cover.js';
+  await loadFonts();
+  renderBili(document.getElementById('bili'));
+  renderDouyin(document.getElementById('douyin'));
+  window.coverReady = true;
+  document.querySelectorAll('button').forEach((b) => {
+    b.onclick = () => document.getElementById(b.dataset.for).toBlob((blob) => {
+      const a = document.createElement('a');
+      a.href = URL.createObjectURL(blob);
+      a.download = b.dataset.name;
+      a.click();
+    }, 'image/png');
+  });
+</script>
+</body>
+</html>

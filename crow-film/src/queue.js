@@ -976,3 +976,6 @@ export function queue(g, t) {
   const fade = 1 - lin(t, 0, 0.94);
   if (fade > 0) { g.fillStyle = `rgba(20,18,16,${fade})`; g.fillRect(0, 0, W, H); }
 }
+
+// 封面（cover.js）复用的元素
+export { PEOPLE, DIR, blendSpec, marchPose, drawShadow, ash, perchedCrow, MARCH_T0 };
