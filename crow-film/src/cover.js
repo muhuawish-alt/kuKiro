@@ -7,7 +7,6 @@ import { BEAT } from './draw.js';
 
 export const TITLE = '留影';
 const SERIF = '"CoverSerif", "Noto Serif SC", "Source Han Serif SC", "Songti SC", STSong, SimSun, serif';
-const SANS = '"CoverSans", "Noto Sans SC", "Source Han Sans SC", "PingFang SC", "Microsoft YaHei", sans-serif';
 const CREAM = '#e6e5dd';
 const SHADOW = '#21050a';
 
@@ -165,9 +164,6 @@ export function renderBili(canvas) {
   });
   // 文字放在左上，避开右下角的时长标记
   title(g, 112, 400, 270);
-  g.fillStyle = 'rgba(230,229,221,0.55)'; g.fillRect(118, 452, 470, 3);
-  text(g, '一列人走进战争，只留下影子', 116, 540, { font: SANS, size: 46, weight: 500 });
-  text(g, '原创动画 · 纯代码绘制 · 一分钟', 118, 606, { font: SANS, size: 30, weight: 500, spacing: 4, alpha: 0.72 });
   grain(g, 1920, 1080);
 }
 
@@ -193,18 +189,16 @@ export function renderDouyin(canvas) {
     crow: { k: 2.5, face: 1 },
   });
   text(g, '别眨眼', 540, 470, { font: SERIF, size: 172, align: 'center', spacing: 10 });
-  text(g, '数一数，还剩几个人', 540, 590, { font: SANS, size: 66, weight: 500, align: 'center', spacing: 2 });
   title(g, 540, 1610, 120, 'center');
   grain(g, 1080, 1920);
 }
 
-// 封面用的字体（思源 / Noto CJK，SIL OFL 1.1）。字体文件较大（12 MB + 8 MB），不放进仓库：
+// 封面用的字体（思源宋体 / Noto Serif SC，SIL OFL 1.1）。字体文件较大（12 MB），不放进仓库：
 // 先找本地的 /.fonts 或 fonts/，找不到就从 notofonts/noto-cjk 仓库直接下载，再不行用系统中文字体
 const NOTO = 'https://raw.githubusercontent.com/notofonts/noto-cjk/main/';
 export async function loadFonts() {
   const tries = [
     ['CoverSerif', ['/.fonts/NotoSerifSC-Black.otf', 'fonts/NotoSerifSC-Black.otf', NOTO + 'Serif/SubsetOTF/SC/NotoSerifSC-Black.otf'], '900'],
-    ['CoverSans', ['/.fonts/NotoSansSC-Medium.otf', 'fonts/NotoSansSC-Medium.otf', NOTO + 'Sans/SubsetOTF/SC/NotoSansSC-Medium.otf'], '500'],
   ];
   for (const [name, urls, weight] of tries) {
     for (const u of urls) {
